@@ -566,9 +566,10 @@ included): [Figtree](https://github.com/erikdkennedy/figtree) and
 
 ## Playback without Spotify Premium
 
-Choose **Continue without Premium** at login, or enable **Settings > Storage >
-Playback without Premium**. This is independent audio playback: it does not open
-librespot's Spotify streaming session, which requires Premium.
+Choose **Continue with Spotify** for read-only account-library sign-in and
+independent playback, or **Continue without signing in** for public imports and
+local music. **Settings > Storage > Playback without Premium** also enables
+independent playback. It does not open librespot's Premium streaming session.
 
 - In **Settings > Storage > Import Spotify playlists**, paste a Spotify track,
   album, or public playlist URL and click **Import**. This uses the existing
@@ -594,8 +595,8 @@ Provider availability, recording identity and catalogue coverage are not
 guaranteed. JSON exports often omit duration: Lumen measures completed provider
 audio and stores the duration; public title/artist matching still requires a
 known reference duration. No Premium playback restriction or Spotify DRM is
-removed. Live account sync, Spotify Connect, private playlist access and Spotify
-library edits are not provided by independent mode. Link-import metadata follows
+removed. Spotify Connect and Spotify library edits are not provided by independent
+mode; read-only account sync is subject to Spotify access restrictions. Link-import metadata follows
 the provider's current frontend API contract and requires a real attended-session
 check; fixture tests do not prove its live availability.
 
@@ -614,7 +615,7 @@ needs a real-session check. The manual token option remains available.
 On Ubuntu 24.04 or newer, install the `.deb` from GitHub Releases using:
 
 ```sh
-sudo apt install ./lumen_0.1.1_amd64.deb
+sudo apt install ./lumen_0.1.2_amd64.deb
 lumen
 ```
 
@@ -650,7 +651,7 @@ Use the `.flatpak` release download for modern x86_64 distributions with Flatpak
 support, including Linux Mint and gaming desktops such as SteamOS/Bazzite:
 
 ```sh
-flatpak install --user ./lumen-0.1.1-linux-x86_64.flatpak
+flatpak install --user ./lumen-0.1.2-linux-x86_64.flatpak
 flatpak run io.github.zaydzaari.Lumen
 ```
 
