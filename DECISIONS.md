@@ -770,3 +770,20 @@ remuxes the local bytes before duration validation and MP3 conversion. FFmpeg
 does not fetch playlist URLs or receive provider credentials. Live, encrypted,
 byte-range and variant playlists remain unsupported. Synthetic fragmented AAC
 conversion is checked in CI alongside the existing direct AAC fixture.
+
+## Progressive provider playback
+
+Explicit provider playback tees arriving audio into an on-demand FFmpeg pipe.
+Its streamable MP3 output uses a bounded disk buffer and begins playback before
+the source transfer completes. Readers wait for new bytes instead of returning
+premature EOF; playback-command epochs interrupt blocked readers on pause, stop,
+song changes and shutdown. No remote URLs or tokens reach FFmpeg. Completed
+recordings still pass duration validation and are indexed for offline playback.
+Seeking waits for the validated permanent file. A newer explicit song cancels
+unfinished requests, including queued background requests, instead of waiting
+for the old download. Cancelled requests cannot overwrite a newer same-song job.
+Tests cover decoding direct MP3 and fragmented AAC before producer completion,
+pause/resume from the buffered prefix, stalled-reader cancellation, failed
+transfers, stale player events and request priority. Unsupported streaming inputs
+fall back to the complete-file path. Public-source yt-dlp matching retains that
+fallback as well.

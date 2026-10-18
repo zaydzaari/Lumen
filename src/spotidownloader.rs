@@ -217,6 +217,7 @@ async fn write_audio(
     response: &mut reqwest::Response,
     file: &mut std::fs::File,
     size: &mut usize,
+    audio: &mut dyn FnMut(&[u8]),
 ) -> Result<()> {
     let start = *size;
     while let Some(chunk) = response
@@ -231,6 +232,7 @@ async fn write_audio(
         *size += chunk.len();
         file.write_all(&chunk)
             .context("Could not write downloaded audio")?;
+        audio(&chunk);
     }
     anyhow::ensure!(*size > start, "SpotiDownloader audio is empty.");
     Ok(())
@@ -285,7 +287,12 @@ pub(crate) fn hls_parts(bytes: &[u8], base: &url::Url) -> Result<Vec<url::Url>> 
     Ok(parts)
 }
 
-async fn fetch(id: &str, token: &str, destination: &Path) -> Result<bool> {
+async fn fetch(
+    id: &str,
+    token: &str,
+    destination: &Path,
+    audio: &mut dyn FnMut(&[u8]),
+) -> Result<bool> {
     let client = client()?;
     let url = resolve(&client, ENDPOINT, id, token).await?;
     let (url, mut response) = audio_response(&client, url, token).await?;
@@ -311,11 +318,12 @@ async fn fetch(id: &str, token: &str, destination: &Path) -> Result<bool> {
         let mut size = 0;
         for part in parts {
             let (_, mut response) = audio_response(&client, part, token).await?;
-            write_audio(&mut response, &mut file, &mut size).await?;
+            write_audio(&mut response, &mut file, &mut size, audio).await?;
         }
     } else {
         file.write_all(&bytes)
             .context("Could not write downloaded audio")?;
+        audio(&bytes);
         let mut size = bytes.len();
         // The first response chunk may already contain the complete file.
         while let Some(chunk) = response
@@ -330,6 +338,7 @@ async fn fetch(id: &str, token: &str, destination: &Path) -> Result<bool> {
             size += chunk.len();
             file.write_all(&chunk)
                 .context("Could not write downloaded audio")?;
+            audio(&chunk);
         }
     }
     file.sync_all()?;
@@ -354,8 +363,9 @@ pub async fn download(
     token: &str,
     destination: &Path,
     stop: &AtomicBool,
+    audio: &mut dyn FnMut(&[u8]),
 ) -> Result<bool> {
-    let job = fetch(id, token, destination);
+    let job = fetch(id, token, destination, audio);
     tokio::pin!(job);
     let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
     loop {
@@ -491,11 +501,15 @@ mod tests {
     async fn stopped_download_does_not_create_a_file() {
         let dir = tempfile::tempdir().unwrap();
         let file = dir.path().join("audio.mp3");
-        assert!(
-            download("track-id", "fixture-token", &file, &AtomicBool::new(true))
-                .await
-                .is_err()
-        );
+        assert!(download(
+            "track-id",
+            "fixture-token",
+            &file,
+            &AtomicBool::new(true),
+            &mut |_| {}
+        )
+        .await
+        .is_err());
         assert!(!file.exists());
     }
 

@@ -157,13 +157,17 @@ pub fn folder(config: &crate::config::DownloadsConfig, paths: &crate::config::Pa
 
 struct Job {
     track: TrackRef,
-    explicit: Arc<AtomicBool>,
+    state: Arc<Request>,
+}
+struct Request {
+    explicit: AtomicBool,
+    cancel: Arc<AtomicBool>,
 }
 
 pub struct Downloader {
     pub library: Arc<Library>,
     tx: mpsc::SyncSender<Job>,
-    pending: Arc<Mutex<HashMap<String, Arc<AtomicBool>>>>,
+    pending: Arc<Mutex<HashMap<String, Arc<Request>>>>,
     enabled: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     ui: UiTx,
@@ -218,8 +222,15 @@ impl Downloader {
                         Err(_) => break,
                     };
                     let track = job.track;
+                    let cancel = &job.state.cancel;
+                    if cancel.load(Ordering::Relaxed) {
+                        if let Ok(mut pending) = waiting.lock() {
+                            if pending.get(&track.uri).is_some_and(|r| Arc::ptr_eq(r, &job.state)) { pending.remove(&track.uri); }
+                        }
+                        continue;
+                    }
                     let mut success = lib.path(&track.uri).is_some();
-                    if (job.explicit.load(Ordering::Relaxed) || on.load(Ordering::Relaxed)) && !success {
+                    if (job.state.explicit.load(Ordering::Relaxed) || on.load(Ordering::Relaxed)) && !success {
                         ui.send(AppEvent::DownloadStatus(format!(
                             "Downloading {}…",
                             track.display_name()
@@ -231,21 +242,22 @@ impl Downloader {
                             let mut verified = false;
                             if connection.enabled() && token.as_ref().is_none_or(|t| crate::spotidownloader::token_needs_refresh(t, now)) {
                                 ui.send(AppEvent::DownloadStatus("Complete download verification in Lumen…".into()));
-                                connection.verify(&ui, &track.uri, &exit)?;
+                                connection.verify(&ui, &track.uri, cancel)?;
                                 ui.send(AppEvent::DownloadStatus(format!("Downloading {}…", track.display_name())));
                                 token = store.load(crate::spotidownloader::KEY);
                                 verified = true;
                             }
                             let Some(token) = token else {
                                 anyhow::ensure!(!verified, "SpotiDownloader could not save the session.");
-                                return download(&track, &lib.folder, &exit, &mut sources);
+                                return download(&track, &lib.folder, cancel, &mut sources);
                             };
-                            let result = download_service(&track, &lib.folder, &exit, &token, &runtime);
+                            let preview_ui = job.state.explicit.load(Ordering::Relaxed).then_some((&ui, job.state.cancel.clone()));
+                            let result = download_service(&track, &lib.folder, cancel, &token, &runtime, preview_ui.clone());
                             if !verified && connection.enabled() && result.as_ref().is_err_and(crate::spotidownloader::needs_verification) {
-                                connection.verify(&ui, &track.uri, &exit)?;
+                                connection.verify(&ui, &track.uri, cancel)?;
                                 ui.send(AppEvent::DownloadStatus(format!("Downloading {}…", track.display_name())));
                                 let token = store.load(crate::spotidownloader::KEY).context("SpotiDownloader session is missing.")?;
-                                download_service(&track, &lib.folder, &exit, &token, &runtime)
+                                download_service(&track, &lib.folder, cancel, &token, &runtime, preview_ui)
                             } else { result }
                         })();
                         match result {
@@ -269,7 +281,7 @@ impl Downloader {
                                     );
                                 }
                             },
-                            Err(e) if !exit.load(Ordering::Relaxed) => {
+                            Err(e) if !exit.load(Ordering::Relaxed) && !cancel.load(Ordering::Relaxed) => {
                                 tracing::warn!(error=%format!("{e:#}"), "Background audio download failed");
                                 let message=user_error(&format!("{e:#}"));
                                 ui.send(AppEvent::DownloadStatus(message.into()));
@@ -278,10 +290,10 @@ impl Downloader {
                             Err(_) => {}
                         }
                     }
-                    if let Ok(mut pending) = waiting.lock() {
-                        pending.remove(&track.uri);
-                    }
-                    ui.send(AppEvent::DownloadFinished { uri: track.uri.clone(), success });
+                    let current_request = if let Ok(mut pending) = waiting.lock() {
+                        if pending.get(&track.uri).is_some_and(|r| Arc::ptr_eq(r, &job.state)) { pending.remove(&track.uri); true } else { false }
+                    } else { false };
+                    if current_request && !cancel.load(Ordering::Relaxed) { ui.send(AppEvent::DownloadFinished { uri: track.uri.clone(), success }); }
                 }
             })?;
         Ok(Self {
@@ -328,20 +340,36 @@ impl Downloader {
             .pending
             .lock()
             .map_err(|_| "Download queue unavailable")?;
-        if let Some(requested) = pending.get(&track.uri) {
+        if let Some(requested) = pending
+            .get(&track.uri)
+            .filter(|r| !r.cancel.load(Ordering::Relaxed))
+        {
             if explicit {
-                requested.store(true, Ordering::Relaxed);
+                requested.explicit.store(true, Ordering::Relaxed);
+                for (uri, request) in pending.iter() {
+                    if uri != &track.uri {
+                        request.cancel.store(true, Ordering::Relaxed);
+                    }
+                }
             }
             return Ok(());
         }
         let uri = track.uri.clone();
-        let explicit = Arc::new(AtomicBool::new(explicit));
+        let state = Arc::new(Request {
+            explicit: AtomicBool::new(explicit),
+            cancel: Arc::new(AtomicBool::new(false)),
+        });
         match self.tx.try_send(Job {
             track,
-            explicit: explicit.clone(),
+            state: state.clone(),
         }) {
             Ok(()) => {
-                pending.insert(uri, explicit);
+                if explicit {
+                    for request in pending.values() {
+                        request.cancel.store(true, Ordering::Relaxed);
+                    }
+                }
+                pending.insert(uri, state);
                 Ok(())
             }
             Err(mpsc::TrySendError::Full(_)) => {
@@ -356,6 +384,11 @@ impl Downloader {
 impl Drop for Downloader {
     fn drop(&mut self) {
         self.stop.store(true, Ordering::Relaxed);
+        if let Ok(pending) = self.pending.lock() {
+            for request in pending.values() {
+                request.cancel.store(true, Ordering::Relaxed);
+            }
+        }
     }
 }
 
@@ -780,6 +813,7 @@ fn download_service(
     stop: &AtomicBool,
     token: &str,
     runtime: &tokio::runtime::Handle,
+    preview_ui: Option<(&UiTx, Arc<AtomicBool>)>,
 ) -> Result<(String, String)> {
     let id = track_id(&track.uri).context("Not a Spotify song")?;
     let stage = folder.join(".incomplete").join(id);
@@ -787,7 +821,24 @@ fn download_service(
     let audio = stage.join("audio.mp3");
     // Never let a failed service request leave an older provider's audio behind.
     let _ = fs::remove_file(&audio);
-    let hls = match runtime.block_on(crate::spotidownloader::download(id, token, &audio, stop)) {
+    let mut preview = preview_ui.and_then(|(ui, cancel)| {
+        Preview::start(&stage, track.uri.clone(), ui.clone(), cancel).ok()
+    });
+    let result = runtime.block_on(crate::spotidownloader::download(
+        id,
+        token,
+        &audio,
+        stop,
+        &mut |bytes| {
+            if let Some(preview) = &mut preview {
+                preview.feed(bytes);
+            }
+        },
+    ));
+    if let Some(preview) = preview {
+        preview.finish(stop, result.is_ok());
+    }
+    let hls = match result {
         Ok(hls) => hls,
         Err(error) => {
             let _ = fs::remove_file(&audio);
@@ -804,6 +855,153 @@ fn download_service(
         stop,
         crate::spotidownloader::SITE.into(),
     )
+}
+
+/// Decode incoming provider bytes to a streamable MP3 while the original bytes
+/// continue to the permanent-file validation path. Only local pipes reach FFmpeg.
+struct Preview {
+    child: std::process::Child,
+    input: Option<std::process::ChildStdin>,
+    output: Option<std::thread::JoinHandle<(crate::progressive::Writer, bool)>>,
+}
+impl Preview {
+    fn start(stage: &Path, uri: String, ui: UiTx, cancel: Arc<AtomicBool>) -> Result<Self> {
+        use std::io::{Read as _, Write as _};
+        let (buffer, mut writer) = crate::progressive::Buffer::with_cancel(stage, cancel)?;
+        let mut process = command("ffmpeg");
+        process
+            .args([
+                "-nostdin",
+                "-v",
+                "error",
+                "-protocol_whitelist",
+                "pipe",
+                "-probesize",
+                "32768",
+                "-analyzeduration",
+                "1000000",
+                "-i",
+                "pipe:0",
+                "-map",
+                "0:a:0",
+                "-vn",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                "-write_xing",
+                "0",
+                "-id3v2_version",
+                "0",
+                "-f",
+                "mp3",
+                "-flush_packets",
+                "1",
+                "pipe:1",
+            ])
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null());
+        let mut child = process
+            .spawn()
+            .context("Starting streaming audio decoder")?;
+        let input = child.stdin.take();
+        let mut stdout = child
+            .stdout
+            .take()
+            .context("Streaming decoder output is unavailable")?;
+        let output = match std::thread::Builder::new()
+            .name("lumen-stream".into())
+            .spawn(move || {
+                let mut bytes = [0; 8192];
+                let mut size = 0;
+                let mut announced = false;
+                let success = loop {
+                    match stdout.read(&mut bytes) {
+                        Ok(0) => break true,
+                        Ok(count) => {
+                            if writer.write_all(&bytes[..count]).is_err() {
+                                break false;
+                            }
+                            size += count;
+                            if !announced && size >= 32768 {
+                                ui.send(AppEvent::PlaybackBuffer {
+                                    uri: uri.clone(),
+                                    buffer: buffer.clone(),
+                                });
+                                announced = true;
+                            }
+                        }
+                        Err(_) => break false,
+                    }
+                };
+                // Short songs may be smaller than the startup buffer.
+                if success && !announced && size > 0 {
+                    ui.send(AppEvent::PlaybackBuffer { uri, buffer });
+                }
+                (writer, success)
+            }) {
+            Ok(output) => output,
+            Err(error) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(error.into());
+            }
+        };
+        Ok(Self {
+            child,
+            input,
+            output: Some(output),
+        })
+    }
+    fn feed(&mut self, bytes: &[u8]) {
+        use std::io::Write as _;
+        if self
+            .input
+            .as_mut()
+            .is_some_and(|input| input.write_all(bytes).is_err())
+        {
+            self.input.take();
+        }
+    }
+    fn finish(mut self, stop: &AtomicBool, received: bool) {
+        self.input.take();
+        let start = Instant::now();
+        let success = loop {
+            if !received
+                || stop.load(Ordering::Relaxed)
+                || start.elapsed() > Duration::from_secs(15)
+            {
+                let _ = self.child.kill();
+                let _ = self.child.wait();
+                break false;
+            }
+            match self.child.try_wait() {
+                Ok(Some(status)) => break status.success(),
+                Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+                Err(_) => {
+                    let _ = self.child.kill();
+                    let _ = self.child.wait();
+                    break false;
+                }
+            }
+        };
+        if let Some(output) = self.output.take() {
+            if let Ok((writer, drained)) = output.join() {
+                writer.finish(success && drained);
+            }
+        }
+    }
+}
+impl Drop for Preview {
+    fn drop(&mut self) {
+        self.input.take();
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        if let Some(output) = self.output.take() {
+            let _ = output.join();
+        }
+    }
 }
 
 fn normalize_segmented_audio(stage: &Path, stop: &AtomicBool) -> Result<()> {
@@ -913,6 +1111,96 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "uses FFmpeg to prove playback starts before the producer finishes"]
+    fn provider_audio_is_decodable_before_the_download_finishes() {
+        let dir = tempfile::tempdir().unwrap();
+        let stop = AtomicBool::new(false);
+        let mut generate = command("ffmpeg");
+        generate
+            .args(["-nostdin", "-v", "error", "-y", "-stream_loop", "-1", "-i"])
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.mp3"))
+            .args([
+                "-t",
+                "20",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                "-write_xing",
+                "0",
+            ])
+            .arg(dir.path().join("input.mp3"));
+        run(generate, dir.path(), "fixture", &stop, 30).unwrap();
+        let bytes = fs::read(dir.path().join("input.mp3")).unwrap();
+        let mut generate = command("ffmpeg");
+        generate.current_dir(dir.path()).args([
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-i",
+            "input.mp3",
+            "-c:a",
+            "aac",
+            "-hls_time",
+            "2",
+            "-hls_segment_type",
+            "fmp4",
+            "-hls_list_size",
+            "0",
+            "list.m3u8",
+        ]);
+        run(generate, dir.path(), "hls-fixture", &stop, 30).unwrap();
+        let parts = crate::spotidownloader::hls_parts(
+            &fs::read(dir.path().join("list.m3u8")).unwrap(),
+            &url::Url::parse("https://cdn.example.com/list.m3u8").unwrap(),
+        )
+        .unwrap();
+        let segmented: Vec<u8> = parts
+            .iter()
+            .flat_map(|part| {
+                fs::read(dir.path().join(part.path().trim_start_matches('/'))).unwrap()
+            })
+            .collect();
+        for bytes in [bytes, segmented] {
+            let (tx, rx) = mpsc::channel();
+            let ui = UiTx::new(tx, egui::Context::default());
+            let mut preview = Preview::start(
+                dir.path(),
+                "fixture".into(),
+                ui,
+                Arc::new(AtomicBool::new(false)),
+            )
+            .unwrap();
+            preview.feed(&bytes[..bytes.len() / 2]);
+            let AppEvent::PlaybackBuffer { buffer, .. } =
+                rx.recv_timeout(Duration::from_secs(5)).unwrap()
+            else {
+                panic!("missing stream buffer")
+            };
+            assert!(!buffer.complete(), "playback must start before completion");
+            let epoch = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let mut source =
+                crate::local_playback::LocalSource::open_stream(&buffer, epoch, 0).unwrap();
+            assert!(source.by_ref().take(16000).any(|s| s.abs() > 0.001));
+            // Pause/resume reopens the already-buffered prefix and seeks to the
+            // previous playback position, without waiting for the full transfer.
+            let mut resumed = crate::local_playback::LocalSource::open_stream(
+                &buffer,
+                Arc::new(std::sync::atomic::AtomicU64::new(0)),
+                0,
+            )
+            .unwrap();
+            resumed.seek(Duration::from_millis(500)).unwrap();
+            assert!(resumed.take(16000).any(|s| s.abs() > 0.001));
+            assert!(!buffer.complete());
+            preview.feed(&bytes[bytes.len() / 2..]);
+            preview.finish(&stop, true);
+            assert!(buffer.complete());
+            assert!(source.count() > 100_000);
+        }
+    }
     #[test]
     #[ignore = "uses FFmpeg to generate and remux a synthetic fragmented HLS response"]
     fn service_hls_response_is_converted_tagged_and_decodable() {
@@ -1199,7 +1487,31 @@ mod tests {
         assert!(rx.try_recv().is_err());
         downloader.pending.lock().unwrap().clear();
         downloader.request_playback(Arc::new(track())).unwrap();
-        assert!(rx.try_recv().unwrap().explicit.load(Ordering::Relaxed));
+        assert!(rx
+            .try_recv()
+            .unwrap()
+            .state
+            .explicit
+            .load(Ordering::Relaxed));
+        let original = downloader
+            .pending
+            .lock()
+            .unwrap()
+            .values()
+            .next()
+            .unwrap()
+            .clone();
+        let mut next = track();
+        next.uri = "spotify:track:abcdefghijkl0123456789".into();
+        downloader.request(Arc::new(next.clone()));
+        downloader.request_playback(Arc::new(next)).unwrap();
+        assert!(
+            original.cancel.load(Ordering::Relaxed),
+            "playing another song must not wait for the previous transfer"
+        );
+        let next = rx.try_recv().unwrap();
+        assert!(next.state.explicit.load(Ordering::Relaxed));
+        assert!(!next.state.cancel.load(Ordering::Relaxed));
     }
     #[test]
     fn saved_library_survives_restart_and_ignores_missing_files() {

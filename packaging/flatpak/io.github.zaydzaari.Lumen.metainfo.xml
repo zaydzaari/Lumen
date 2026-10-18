@@ -10,5 +10,5 @@
   <url type="homepage">https://github.com/zaydzaari/Lumen</url>
   <url type="bugtracker">https://github.com/zaydzaari/Lumen/issues</url>
   <content_rating type="oars-1.1"/>
-  <releases><release version="0.1.1" date="2026-10-18"/></releases>
+  <releases><release version="0.1.2" date="2026-10-18"/><release version="0.1.1" date="2026-10-18"/></releases>
 </component>

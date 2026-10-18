@@ -26,6 +26,20 @@ For modern Linux Mint, Fedora, Arch and gaming desktops, choose the x86_64
 `.flatpak` package. Ubuntu 24.04+ users can also choose the `.deb` installer.
 See the Linux installation sections below for commands and requirements.
 
+## Playback while saving (0.1.2)
+
+Independent playback now starts SpotiDownloader audio after a small buffer,
+while the rest of the song downloads and is saved permanently. Direct MP3 and
+unencrypted segmented AAC are supported. Pause/resume works while buffering;
+seeking becomes available once the complete file is saved. Switching songs
+cancels the unfinished transfer so the next song is not stuck behind it.
+Completed songs still play directly from disk, including offline.
+
+Provider lookup or human verification can still delay startup. Sources that
+cannot be decoded progressively, and public-source matching without the service
+connection, retain the complete-download fallback. FFmpeg runs only during
+preparation/saving; no browser is kept open for audio playback.
+
 ## Account sign-in and updates (0.1.1)
 
 Choose **Continue with Spotify** to authorize read-only library access in your
@@ -566,10 +580,11 @@ librespot's Spotify streaming session, which requires Premium.
   playlists. Unsupported podcast/local-file entries are counted and skipped.
 - Imported playlists appear in Your Library. Search searches imported tracks and
   local music (up to 500 results), rather than Spotify's entire online catalogue.
-- Play requests download missing audio first, then play the completed file from
-  the permanent music folder. First playback must wait for the download; later
-  playback is local and works offline. Queue, shuffle, repeat, seeking, volume,
-  media controls, local history, and available LRCLIB lyrics still work.
+- Play requests stream supported provider audio while saving it to the permanent
+  music folder. A short initial buffer is required; later playback is local and
+  works offline. Queue, shuffle, repeat, volume,
+  media controls, local history, and available LRCLIB lyrics still work. Seeking
+  is available after the complete file is saved.
 - Only requested songs download. Importing a playlist does not download it in
   bulk. Explicit playback downloads work even if background automatic saving is
   switched off. Failed songs stay selected for retry rather than downloading the

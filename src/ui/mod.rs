@@ -3438,6 +3438,9 @@ impl App {
                     });
                 }
             }
+            AppEvent::PlaybackBuffer { uri, buffer } => {
+                self.send(PlayerCmd::PlaybackBuffer { uri, buffer })
+            }
             AppEvent::DownloadFinished { uri, success } => {
                 self.send(PlayerCmd::DownloadFinished { uri, success })
             }

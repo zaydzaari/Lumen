@@ -296,7 +296,7 @@ impl Default for LocalConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct DownloadsConfig {
-    /// Independent playback: skip Spotify streaming login and download before play.
+    /// Independent playback: skip Spotify streaming login; stream while saving.
     pub independent: bool,
     pub automatic: bool,
     /// Show attended in-app verification on demand; never run a browser while idle.

@@ -116,6 +116,10 @@ const HISTORY_CAP: usize = 200;
 
 pub enum PlayerCmd {
     Independent(bool),
+    PlaybackBuffer {
+        uri: String,
+        buffer: Arc<crate::progressive::Buffer>,
+    },
     DownloadFinished {
         uri: String,
         success: bool,
@@ -485,6 +489,7 @@ fn offline_engine(audio: AudioSettings, volume: u8, ui: UiTx) -> Result<Engine> 
         file_generation: 0,
         file_loaded: false,
         current_file: None,
+        current_stream: None,
         downloads: None,
         independent: false,
         waiting_download: None,
@@ -540,6 +545,7 @@ struct Engine {
     file_generation: u64,
     file_loaded: bool,
     current_file: Option<std::path::PathBuf>,
+    current_stream: Option<Arc<crate::progressive::Buffer>>,
     downloads: Option<Arc<crate::downloads::Library>>,
     session: Session,
     mixer: Arc<SoftMixer>,
@@ -582,7 +588,8 @@ async fn recv_opt(ch: &mut Option<PlayerEventChannel>) -> Option<PlayerEvent> {
 
 impl Engine {
     fn is_file(&self) -> bool {
-        self.current_file.is_some()
+        self.current_stream.is_some()
+            || self.current_file.is_some()
             || self
                 .current
                 .as_ref()
@@ -604,6 +611,25 @@ impl Engine {
     }
 
     fn seek(&mut self, position: u32) {
+        if let Some(buffer) = &self.current_stream {
+            if !buffer.complete()
+                || self
+                    .downloads
+                    .as_ref()
+                    .and_then(|l| self.current.as_ref().and_then(|t| l.path(&t.uri)))
+                    .is_none()
+            {
+                self.ui.toast(
+                    ToastKind::Info,
+                    "This song is still arriving. Seeking becomes available once it is saved.",
+                );
+                return;
+            }
+            if let Some(track) = self.current.clone() {
+                self.load(&track, self.playing, position);
+            }
+            return;
+        }
         if let Some(waiting) = &mut self.waiting_download {
             waiting.position_ms = position;
             self.set_position(position);
@@ -632,6 +658,7 @@ impl Engine {
     }
 
     fn stop_file(&mut self) {
+        self.current_stream = None;
         self.file_loaded = false;
         self.file_generation = self.file_generation.wrapping_add(1);
         self.file_output.send(FileCmd::Stop);
@@ -659,7 +686,11 @@ impl Engine {
             }
             FileEvent::Error(id, message) if id == self.file_generation => {
                 self.ui.toast(ToastKind::Error, message);
-                self.skip_unplayable();
+                if self.current_stream.is_some() {
+                    self.advance_stop();
+                } else {
+                    self.skip_unplayable();
+                }
             }
             _ => {}
         }
@@ -828,6 +859,7 @@ impl Engine {
 
         match cmd {
             PlayerCmd::Independent(enabled) => self.independent = enabled,
+            PlayerCmd::PlaybackBuffer { uri, buffer } => self.stream_ready(&uri, buffer),
             PlayerCmd::DownloadFinished { uri, success } => self.download_finished(&uri, success),
             PlayerCmd::DownloadLibrary(library) => self.downloads = Some(library),
             PlayerCmd::AttachConnection(connection) => self.attach(*connection),
@@ -1343,6 +1375,19 @@ impl Engine {
     }
 
     fn download_finished(&mut self, uri: &str, success: bool) {
+        if self.current_stream.is_some() && self.current.as_ref().is_some_and(|t| t.uri == uri) {
+            if !success {
+                self.advance_stop();
+            } else if let Some(track) = self
+                .downloads
+                .as_ref()
+                .and_then(|library| library.track(uri))
+            {
+                self.current = Some(track);
+                self.emit();
+            }
+            return;
+        }
         if self.mode != Mode::Local
             || self.current.as_ref().is_none_or(|t| t.uri != uri)
             || self.waiting_download.as_ref().is_none_or(|w| w.uri != uri)
@@ -1359,6 +1404,33 @@ impl Engine {
             self.playing = false;
             self.emit();
         }
+    }
+
+    fn stream_ready(&mut self, uri: &str, buffer: Arc<crate::progressive::Buffer>) {
+        if buffer.cancelled()
+            || self.mode != Mode::Local
+            || self.current.as_ref().is_none_or(|t| t.uri != uri)
+            || self
+                .waiting_download
+                .as_ref()
+                .is_none_or(|w| w.uri != uri || w.position_ms != 0)
+        {
+            return;
+        }
+        let waiting = self.waiting_download.take().unwrap();
+        self.stop_file();
+        self.current_file = None;
+        self.current_stream = Some(buffer.clone());
+        self.file_loaded = true;
+        self.loading = true;
+        self.playing = false;
+        self.file_output.send(FileCmd::Stream {
+            id: self.file_generation,
+            buffer,
+            playing: waiting.playing,
+            volume: self.mixer.volume(),
+        });
+        self.emit();
     }
 
     fn skip_unplayable(&mut self) {
@@ -1585,6 +1657,63 @@ pub fn track_from_audio_item(a: &AudioItem) -> TrackRef {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn progressive_ready_respects_pause_and_rejects_a_stale_song() {
+        use std::io::Write as _;
+        let folder = tempfile::tempdir().unwrap();
+        let (buffer, mut writer) = crate::progressive::Buffer::create(folder.path()).unwrap();
+        writer
+            .write_all(
+                &std::fs::read(
+                    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                        .join("tests/fixtures/tone.mp3"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        writer.finish(true);
+        let (tx, _) = std::sync::mpsc::channel();
+        let ui = UiTx::new(tx, egui::Context::default());
+        let mut engine = offline_engine(
+            AudioSettings {
+                bitrate: 320,
+                normalisation: false,
+                volume_level_db: 0,
+                gapless: true,
+            },
+            0,
+            ui,
+        )
+        .unwrap();
+        let track = Arc::new(Track {
+            uri: "spotify:track:0123456789abcdefghijkl".into(),
+            name: "Streamed song".into(),
+            duration_ms: 1000,
+            ..Default::default()
+        });
+        engine.play(track.clone());
+        engine.handle_cmd(PlayerCmd::TogglePlay);
+        engine.stream_ready("different-song", buffer.clone());
+        assert!(engine.waiting_download.is_some());
+        assert!(engine.current_stream.is_none());
+        engine.stream_ready(&track.uri, buffer);
+        assert!(engine.waiting_download.is_none());
+        assert!(engine.current_stream.is_some());
+        let event = tokio::time::timeout(Duration::from_secs(2), engine.file_events.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        assert!(!matches!(event, FileEvent::Error(..)));
+        engine.handle_file_event(event);
+        assert!(!engine.playing);
+        assert!(!engine.loading);
+        engine.seek(500); // no completed file: do not stop the stream
+        assert!(engine.current_stream.is_some());
+        engine.download_finished(&track.uri, false);
+        assert!(!engine.playing);
+        assert!(engine.current_stream.is_none());
+    }
 
     #[tokio::test]
     async fn independent_download_wait_respects_pause_seek_and_stale_completion() {

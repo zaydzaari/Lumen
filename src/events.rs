@@ -42,6 +42,10 @@ pub enum AppEvent {
         result: Result<crate::spotify_library::Connected, String>,
     },
     PlaybackDownload(TrackRef),
+    PlaybackBuffer {
+        uri: String,
+        buffer: Arc<crate::progressive::Buffer>,
+    },
     DownloadFinished {
         uri: String,
         success: bool,

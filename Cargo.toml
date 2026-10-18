@@ -1,6 +1,6 @@
 [package]
 name = "lumen"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 rust-version = "1.95"
 description = "Lumen - a lightweight, open-source Spotify desktop client"

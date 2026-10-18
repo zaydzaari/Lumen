@@ -1,7 +1,10 @@
 //! Network-free decoding on a dedicated thread, using the same output as LazySink.
 use std::fs::File;
 use std::path::{Path, PathBuf};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicU64, Ordering},
+    mpsc, Arc, Mutex,
+};
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
@@ -16,6 +19,12 @@ use tokio::sync::mpsc as async_mpsc;
 use crate::player::LazySink;
 
 pub enum Command {
+    Stream {
+        id: u64,
+        buffer: Arc<crate::progressive::Buffer>,
+        playing: bool,
+        volume: u16,
+    },
     Load {
         id: u64,
         path: PathBuf,
@@ -41,7 +50,8 @@ pub enum Event {
 }
 
 pub struct Output {
-    tx: mpsc::SyncSender<Command>,
+    tx: mpsc::SyncSender<(u64, Command)>,
+    epoch: Arc<AtomicU64>,
     thread: Option<std::thread::JoinHandle<()>>,
     events: async_mpsc::UnboundedSender<Event>,
     ui: crate::events::UiTx,
@@ -54,25 +64,34 @@ impl Output {
     ) -> Result<Self> {
         let (tx, rx) = mpsc::sync_channel(64);
         let worker_events = events.clone();
+        let epoch = Arc::new(AtomicU64::new(0));
+        let worker_epoch = epoch.clone();
         let thread = std::thread::Builder::new()
             .name("lumen-local".into())
-            .spawn(move || worker(rx, worker_events))?;
+            .spawn(move || worker(rx, worker_events, worker_epoch))?;
         Ok(Self {
             tx,
+            epoch,
             thread: Some(thread),
             events,
             ui,
         })
     }
     pub fn send(&self, command: Command) {
+        let epoch = if matches!(command, Command::Volume(_) | Command::Resume) {
+            self.epoch.load(Ordering::Acquire)
+        } else {
+            self.epoch.fetch_add(1, Ordering::AcqRel).wrapping_add(1)
+        };
         // Commands come from the engine, never the UI thread. Backpressure is bounded.
-        if let Err(e) = self.tx.try_send(command) {
+        if let Err(e) = self.tx.try_send((epoch, command)) {
             self.ui.toast(
                 crate::events::ToastKind::Error,
                 "Local playback is busy or unavailable; retry the action",
             );
             let (mpsc::TrySendError::Full(command) | mpsc::TrySendError::Disconnected(command)) = e;
-            if let Command::Load { id, .. } = command {
+            let (_, command) = command;
+            if let Command::Load { id, .. } | Command::Stream { id, .. } = command {
                 let _ = self
                     .events
                     .send(Event::Error(id, "Could not schedule local playback".into()));
@@ -83,6 +102,7 @@ impl Output {
 
 impl Drop for Output {
     fn drop(&mut self) {
+        self.epoch.fetch_add(1, Ordering::AcqRel);
         // Disconnect before joining; the worker never waits for this engine.
         let (replacement, _) = mpsc::sync_channel(1);
         drop(std::mem::replace(&mut self.tx, replacement));
@@ -92,8 +112,26 @@ impl Drop for Output {
     }
 }
 
-fn worker(rx: mpsc::Receiver<Command>, events: async_mpsc::UnboundedSender<Event>) {
-    let mut current: Option<(u64, PathBuf)> = None;
+#[derive(Clone)]
+enum Input {
+    File(PathBuf),
+    Stream(Arc<crate::progressive::Buffer>),
+}
+impl Input {
+    fn open(&self, epoch: &Arc<AtomicU64>, expected: u64) -> Result<LocalSource> {
+        match self {
+            Self::File(path) => LocalSource::open(path),
+            Self::Stream(buffer) => LocalSource::open_stream(buffer, epoch.clone(), expected),
+        }
+    }
+}
+
+fn worker(
+    rx: mpsc::Receiver<(u64, Command)>,
+    events: async_mpsc::UnboundedSender<Event>,
+    epoch: Arc<AtomicU64>,
+) {
+    let mut current: Option<(u64, Input)> = None;
     let mut output: Option<(rodio::Sink, rodio::OutputStream)> = None;
     let mut position_ms = 0;
     let mut volume = 65535;
@@ -104,7 +142,7 @@ fn worker(rx: mpsc::Receiver<Command>, events: async_mpsc::UnboundedSender<Event
         } else {
             rx.recv().map_err(|_| mpsc::RecvTimeoutError::Disconnected)
         };
-        let command = match received {
+        let (expected, command) = match received {
             Ok(c) => c,
             Err(mpsc::RecvTimeoutError::Disconnected) => break,
             Err(mpsc::RecvTimeoutError::Timeout) => {
@@ -133,12 +171,37 @@ fn worker(rx: mpsc::Receiver<Command>, events: async_mpsc::UnboundedSender<Event
                     volume: v,
                 } => {
                     output = None;
-                    current = Some((id, path.clone()));
+                    current = Some((id, Input::File(path.clone())));
                     position_ms = pos;
                     volume = v;
                     let mut source = LocalSource::open(&path)?;
                     failure = Some(source.failure.clone());
                     source.seek(Duration::from_millis(pos.into()))?;
+                    if playing {
+                        let (sink, stream) = LazySink::open().map_err(anyhow::Error::msg)?;
+                        sink.set_volume(volume as f32 / 65535.0);
+                        sink.append(source);
+                        output = Some((sink, stream));
+                    }
+                    let _ = events.send(Event::State {
+                        id,
+                        playing,
+                        position_ms,
+                    });
+                }
+                Command::Stream {
+                    id,
+                    buffer,
+                    playing,
+                    volume: v,
+                } => {
+                    output = None;
+                    let input = Input::Stream(buffer);
+                    current = Some((id, input.clone()));
+                    position_ms = 0;
+                    volume = v;
+                    let source = input.open(&epoch, expected)?;
+                    failure = Some(source.failure.clone());
                     if playing {
                         let (sink, stream) = LazySink::open().map_err(anyhow::Error::msg)?;
                         sink.set_volume(volume as f32 / 65535.0);
@@ -170,7 +233,7 @@ fn worker(rx: mpsc::Receiver<Command>, events: async_mpsc::UnboundedSender<Event
                 Command::Resume => {
                     if output.is_none() {
                         if let Some((id, path)) = &current {
-                            let mut source = LocalSource::open(path)?;
+                            let mut source = path.open(&epoch, expected)?;
                             failure = Some(source.failure.clone());
                             source.seek(Duration::from_millis(position_ms.into()))?;
                             let (sink, stream) = LazySink::open().map_err(anyhow::Error::msg)?;
@@ -190,7 +253,7 @@ fn worker(rx: mpsc::Receiver<Command>, events: async_mpsc::UnboundedSender<Event
                     output = None;
                     position_ms = pos;
                     if let Some((id, path)) = &current {
-                        let mut source = LocalSource::open(path)?;
+                        let mut source = path.open(&epoch, expected)?;
                         failure = Some(source.failure.clone());
                         source.seek(Duration::from_millis(pos.into()))?;
                         if was_playing {
@@ -251,9 +314,23 @@ impl LocalSource {
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
             hint.with_extension(ext);
         }
+        Self::from_media(Box::new(file), hint)
+    }
+
+    pub(crate) fn open_stream(
+        buffer: &Arc<crate::progressive::Buffer>,
+        epoch: Arc<AtomicU64>,
+        expected: u64,
+    ) -> Result<Self> {
+        let mut hint = Hint::new();
+        hint.with_extension("mp3");
+        Self::from_media(Box::new(buffer.reader(epoch, expected)?), hint)
+    }
+
+    fn from_media(media: Box<dyn symphonia::core::io::MediaSource>, hint: Hint) -> Result<Self> {
         let probed = symphonia::default::get_probe().format(
             &hint,
-            MediaSourceStream::new(Box::new(file), Default::default()),
+            MediaSourceStream::new(media, Default::default()),
             &symphonia::core::formats::FormatOptions {
                 enable_gapless: true,
                 ..Default::default()
@@ -299,7 +376,7 @@ impl LocalSource {
         })
     }
 
-    fn seek(&mut self, position: Duration) -> Result<()> {
+    pub(crate) fn seek(&mut self, position: Duration) -> Result<()> {
         if position.is_zero() {
             return Ok(());
         }

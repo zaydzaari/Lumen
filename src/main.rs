@@ -24,6 +24,7 @@ mod memory;
 mod model;
 mod player;
 mod plugins;
+mod progressive;
 mod provider_catalog;
 mod spotidownloader;
 mod spotify_library;
