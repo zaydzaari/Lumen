@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Lumen
+Comment=Native music player with local and Spotify playback
+Exec=lumen
+Icon=lumen
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=lumen

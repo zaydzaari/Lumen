@@ -1,0 +1,12 @@
+target/
+dist/
+*.log
+build.log
+# Runtime secrets (including portable LUMEN_HOME installations).
+**/secrets/
+spotidownloader-token.*
+**/download-webview/
+
+# Personal imported libraries in portable installations.
+**/free-library.json
+**/free-library.json.tmp

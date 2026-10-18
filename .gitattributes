@@ -1,0 +1,13 @@
+*.sh text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.desktop text eol=lf
+*.svg text eol=lf
+*.ttf binary
+*.png binary
+*.mp3 binary
+*.m4a binary
+*.flac binary
+*.ogg binary
+*.opus binary
+*.wav binary
