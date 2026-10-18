@@ -164,8 +164,16 @@ fn main_menu(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
                 ui.close();
             }
             ui.separator();
-            if app.backend.is_some() && ui.button("Refresh library").clicked() {
-                app.refresh_library();
+            if (app.backend.is_some() || app.account_connected)
+                && ui
+                    .add_enabled(!app.login.busy, egui::Button::new("Refresh library"))
+                    .clicked()
+            {
+                if app.backend.is_some() {
+                    app.refresh_library();
+                } else {
+                    app.start_account_login(false);
+                }
                 ui.close();
             }
             if ui.button("Keyboard shortcuts   Ctrl+/").clicked() {
@@ -540,6 +548,20 @@ fn profile(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
         .gap(6.0)
         .show(|ui| {
             super::widgets::menu_style(ui, 240.0);
+            if app.backend.is_none() && app.account_connected {
+                if widgets::menu_item(ui, "Account", true, &pal).clicked() {
+                    let _ = open::that_detached("https://www.spotify.com/account/overview/");
+                    ui.close();
+                }
+                if ui
+                    .add_enabled(!app.login.busy, egui::Button::new("Sync library"))
+                    .clicked()
+                {
+                    app.start_account_login(false);
+                    ui.close();
+                }
+                ui.separator();
+            }
             if app.backend.is_some() {
                 if widgets::menu_item(ui, "Account", true, &pal).clicked() {
                     let _ = open::that_detached("https://www.spotify.com/account/overview/");
@@ -595,7 +617,7 @@ fn profile(app: &mut App, ui: &mut egui::Ui, rect: Rect) {
                 ui.close();
             }
             ui.separator();
-            if app.backend.is_some() {
+            if app.backend.is_some() || app.account_connected {
                 if widgets::menu_item(ui, "Log out", false, &pal).clicked() {
                     app.logout();
                     ui.close();

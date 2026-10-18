@@ -257,7 +257,6 @@ pub async fn connect(
         !profile.id.is_empty(),
         "Spotify did not identify the account"
     );
-    client.save()?;
     let prefix = format!(
         "lumen:playlist:account:{:x}",
         Sha256::digest(profile.id.as_bytes())
@@ -316,6 +315,7 @@ pub async fn connect(
         name: "Liked Songs".into(),
         tracks,
     });
+    client.save()?;
     Ok(Connected {
         profile,
         library: Import { playlists, skipped },
