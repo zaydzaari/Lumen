@@ -94,10 +94,10 @@ impl App {
                 let archive = crate::updates::Kind::detect() == crate::updates::Kind::Archive;
                 ui.label(if archive { "Extract the downloaded archive to update your portable installation." } else { "Your settings and saved music stay on this device. The system installer will finish the update." });
                 if ui.button(if archive { "Open downloaded archive" } else { "Install update" }).clicked() {
-                    match open::that_detached(path) {
+                    match crate::updates::open_installer(path) {
                         Ok(()) if !archive => self.quit(ctx),
                         Ok(()) => self.updater.dismissed = Some(version.clone()),
-                        Err(error) => self.toast(ToastKind::Error, format!("Open {} to install the update: {error}", path.display())),
+                        Err(error) => self.toast(ToastKind::Error, format!("Open {} to install the update: {error}", path.path.display())),
                     }
                 }
             } else if ui.add_enabled(!state.busy, egui::Button::new("Download update")).clicked() {

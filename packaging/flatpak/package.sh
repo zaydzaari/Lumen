@@ -17,6 +17,8 @@ sed "s/^Icon=lumen$/Icon=$app_id/" packaging/linux/lumen.desktop > "$stage/lumen
 install -Dm644 "$stage/lumen.desktop" "$stage/build/files/share/applications/$app_id.desktop"
 install -Dm644 LICENSE "$stage/build/files/share/licenses/$app_id/LICENSE"
 install -Dm644 packaging/flatpak/io.github.zaydzaari.Lumen.metainfo.xml "$stage/build/files/share/metainfo/$app_id.metainfo.xml"
+mkdir -p "$stage/build/files/share/licenses/$app_id/fonts"
+cp assets/fonts/*-OFL.txt "$stage/build/files/share/licenses/$app_id/fonts/"
 flatpak build-finish --command=lumen \
   --share=network --share=ipc --socket=wayland --socket=fallback-x11 \
   --socket=pulseaudio --device=dri --filesystem=home \

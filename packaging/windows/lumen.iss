@@ -24,6 +24,7 @@ LicenseFile=..\..\LICENSE
 [Files]
 Source: "..\..\target\release\lumen.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\..\assets\fonts\*-OFL.txt"; DestDir: "{app}\licenses"; Flags: ignoreversion
 [Icons]
 Name: "{group}\Lumen"; Filename: "{app}\lumen.exe"
 [Run]

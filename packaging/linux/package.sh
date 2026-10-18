@@ -14,6 +14,8 @@ install -m755 packaging/linux/install.sh "$bundle/install.sh"
 install -m644 packaging/linux/lumen.desktop assets/lumen.svg LICENSE "$bundle/"
 cp -R plugins "$bundle/example-plugins"
 cp README.md "$bundle/README.md"
+mkdir -p "$bundle/licenses"
+cp assets/fonts/*-OFL.txt "$bundle/licenses/"
 tar -C "$stage" -czf "dist/lumen-${version}-linux-${arch}.tar.gz" lumen
 if command -v dpkg-deb >/dev/null 2>&1 && [[ "$arch" == x86_64 ]]; then
   deb="$stage/deb"
@@ -21,7 +23,8 @@ if command -v dpkg-deb >/dev/null 2>&1 && [[ "$arch" == x86_64 ]]; then
   install -Dm644 packaging/linux/lumen.desktop "$deb/usr/share/applications/lumen.desktop"
   install -Dm644 assets/lumen.svg "$deb/usr/share/icons/hicolor/scalable/apps/lumen.svg"
   install -Dm644 LICENSE "$deb/usr/share/doc/lumen/copyright"
-  mkdir -p "$deb/DEBIAN"
+  mkdir -p "$deb/DEBIAN" "$deb/usr/share/doc/lumen/licenses"
+  cp assets/fonts/*-OFL.txt "$deb/usr/share/doc/lumen/licenses/"
   cat > "$deb/DEBIAN/control" <<CONTROL
 Package: lumen
 Version: ${version}

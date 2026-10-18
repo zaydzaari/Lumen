@@ -4,7 +4,7 @@ use anyhow::{Context as _, Result};
 use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use std::{
-    io::Write,
+    io::{Read, Write},
     path::PathBuf,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
@@ -64,12 +64,18 @@ struct Release {
     prerelease: bool,
     assets: Vec<Asset>,
 }
+#[derive(Clone)]
+pub struct Ready {
+    pub path: PathBuf,
+    hash: String,
+    size: u64,
+}
 #[derive(Clone, Default)]
 pub struct State {
     pub busy: bool,
     pub status: String,
     pub version: Option<String>,
-    pub ready: Option<PathBuf>,
+    pub ready: Option<Ready>,
 }
 #[derive(Default)]
 pub struct Updater {
@@ -180,7 +186,7 @@ async fn fetch(
     shared: &crate::backend::Shared,
     kind: Kind,
     download: bool,
-) -> Result<Option<(String, Option<PathBuf>)>> {
+) -> Result<Option<(String, Option<Ready>)>> {
     let release: Release = serde_json::from_slice(&bounded(&shared.http, API, 1 << 20).await?)?;
     let current = stable_version(env!("CARGO_PKG_VERSION")).context("Invalid current version")?;
     let next = stable_version(&release.tag_name).context("Invalid release version")?;
@@ -212,6 +218,16 @@ async fn fetch(
     let folder = shared.paths.cache_dir.join("updates").join(&version);
     std::fs::create_dir_all(&folder)?;
     let path = folder.join(&name);
+    if matches_file(&path, &hash, asset.size) {
+        return Ok(Some((
+            version,
+            Some(Ready {
+                path,
+                hash,
+                size: asset.size,
+            }),
+        )));
+    }
     let tmp = folder.join("download.part");
     let mut response = shared
         .http
@@ -242,7 +258,46 @@ async fn fetch(
         std::fs::remove_file(&path)?;
     }
     std::fs::rename(&tmp, &path)?;
-    Ok(Some((version, Some(path))))
+    Ok(Some((
+        version,
+        Some(Ready {
+            path,
+            hash,
+            size: asset.size,
+        }),
+    )))
+}
+fn matches_file(path: &std::path::Path, expected: &str, size: u64) -> bool {
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
+    if !file.metadata().is_ok_and(|m| m.len() == size) {
+        return false;
+    }
+    let mut digest = Sha256::new();
+    let mut buffer = [0u8; 65536];
+    let mut total = 0u64;
+    loop {
+        match file.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(count) => {
+                total += count as u64;
+                if total > LIMIT {
+                    return false;
+                }
+                digest.update(&buffer[..count]);
+            }
+            Err(_) => return false,
+        }
+    }
+    total == size && format!("{:x}", digest.finalize()) == expected
+}
+pub fn open_installer(ready: &Ready) -> Result<()> {
+    anyhow::ensure!(
+        matches_file(&ready.path, &ready.hash, ready.size),
+        "The update file changed. Download it again before installing"
+    );
+    open::that_detached(&ready.path).context("Could not open the downloaded installer")
 }
 #[cfg(test)]
 mod tests {
@@ -266,5 +321,21 @@ mod tests {
         assert!(trusted_asset(
             "https://github.com/zaydzaari/Lumen/releases/download/v0.1.1/app"
         ));
+    }
+    #[test]
+    fn cached_installers_are_reverified_and_tampering_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("update");
+        std::fs::write(&path, b"release").unwrap();
+        let hash = format!("{:x}", Sha256::digest(b"release"));
+        assert!(matches_file(&path, &hash, 7));
+        std::fs::write(&path, b"changed").unwrap();
+        assert!(!matches_file(&path, &hash, 7));
+        assert!(open_installer(&Ready {
+            path,
+            hash,
+            size: 7
+        })
+        .is_err());
     }
 }
