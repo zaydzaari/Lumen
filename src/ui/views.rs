@@ -2646,12 +2646,13 @@ fn home(app: &mut App, ui: &mut egui::Ui) {
                     if app.backend.is_none() && !app.demo && app.playlists.items.is_empty() {
                         ui.add_space(12.0);
                         ui.label(
-                            egui::RichText::new("Import playlists in Settings > Storage, or connect Spotify Premium.")
+                            egui::RichText::new("Connect your Spotify library, or paste a public playlist link below. Local files work without signing in.")
                                 .color(pal.weak),
                         );
-                        if ui.button("Log in to Spotify").clicked() {
-                            app.screen = super::Screen::Login;
-                        }
+                        if ui.add_enabled(!app.login.busy, egui::Button::new("Connect Spotify library")).clicked() { app.start_account_login(true); }
+                        ui.add(egui::TextEdit::singleline(&mut app.free_import_path).hint_text("Paste a Spotify playlist, album or song link").desired_width(360.0));
+                        if ui.add_enabled(!app.free_importing, egui::Button::new("Import link")).clicked() { app.import_free_library(); }
+                        if ui.button("Play local files").clicked() { app.show_local(); }
                     } else if !app.home.loaded && app.backend.is_some() {
                         widgets::skeleton_cards(ui, 2, pal.text);
                     }

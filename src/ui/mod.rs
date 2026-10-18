@@ -469,6 +469,11 @@ struct DebugStats {
 }
 
 pub struct App {
+    pub updater: crate::updates::Updater,
+    pub account_connected: bool,
+    pub account_generation: u64,
+    pub account_synced: bool,
+    pub account_task: Option<tokio::task::JoinHandle<()>>,
     pub forward: Vec<View>,
     pub artist_info:
         std::collections::HashMap<String, Option<Result<crate::model::ArtistInfo, String>>>,
@@ -850,6 +855,11 @@ impl App {
 
         let discord = crate::discord::Discord::start(config.discord.clone());
         let mut app = Self {
+            updater: Default::default(),
+            account_connected: crate::spotify_library::stored(&shared),
+            account_generation: 0,
+            account_synced: false,
+            account_task: None,
             forward: Vec::new(),
             artist_info: Default::default(),
             followed: HashSet::new(),
@@ -994,6 +1004,15 @@ impl App {
             connect_enabled: false,
             config,
         };
+        if let Ok(bytes) = std::fs::read(app.shared.paths.data_dir.join("account-profile.json")) {
+            if let Ok(profile) = serde_json::from_slice::<crate::model::UserInfo>(&bytes) {
+                if app.account_connected {
+                    app.username = profile.display_name;
+                    app.avatar = profile.avatar;
+                    app.user_id = Some(profile.id);
+                }
+            }
+        }
         app.compile_shortcuts();
         {
             let _entered = app.shared.rt.enter();
@@ -1038,8 +1057,7 @@ impl App {
         }
         if app.config.downloads.independent {
             app.screen = Screen::Main;
-            app.load_cached_library();
-            app.view = View::Local;
+            app.view = View::Home;
         }
         app.load_local();
         app.probe_network();
@@ -1056,6 +1074,9 @@ impl App {
         }
         if std::env::args().any(|a| a == "--demo") {
             app.load_demo();
+        }
+        if !app.demo && app.config.downloads.independent && app.account_connected {
+            app.start_account_login(false);
         }
         app
     }
@@ -2246,6 +2267,13 @@ impl App {
         if let Some(b) = self.backend.take() {
             b.shutdown();
         }
+        self.account_generation = self.account_generation.wrapping_add(1);
+        crate::spotify_library::disconnect(&self.shared);
+        if let Some(task) = self.account_task.take() {
+            task.abort();
+        }
+        self.account_connected = false;
+        let _ = std::fs::remove_file(self.shared.paths.data_dir.join("account-profile.json"));
         self.shared.logout();
         self.reset_session_state();
         if let Some(snapshot) = local_snapshot {
@@ -3349,6 +3377,52 @@ impl App {
 
     fn handle_event(&mut self, ctx: &egui::Context, ev: AppEvent) {
         match ev {
+            AppEvent::AccountLibrary { generation, result } => {
+                if generation != self.account_generation {
+                    return;
+                }
+                self.login.busy = false;
+                self.login.url = None;
+                self.account_task.take();
+                match result {
+                    Ok(connected) => {
+                        if let Some(backend) = self.backend.take() {
+                            backend.shutdown();
+                        }
+                        self.account_connected = true;
+                        self.account_synced = true;
+                        self.username = connected.profile.display_name;
+                        self.avatar = connected.profile.avatar;
+                        self.user_id = Some(connected.profile.id);
+                        self.free_library = connected.library.playlists;
+                        self.config.downloads.independent = true;
+                        self.send(PlayerCmd::Independent(true));
+                        self.save_config();
+                        self.lists.clear();
+                        self.playlists = Paged::default();
+                        self.attach_free_playlists();
+                        let show_library = self.screen == Screen::Connecting;
+                        self.screen = Screen::Main;
+                        if show_library {
+                            self.navigate(View::Playlists);
+                        } else {
+                            self.on_view_opened();
+                        }
+                        if connected.restricted > 0 {
+                            self.toast(ToastKind::Info, format!("Library connected. Spotify restricted {} playlists; owned playlists and liked songs were imported. You can import public playlist links separately.", connected.restricted));
+                        } else {
+                            self.toast(ToastKind::Info, "Your Spotify library is ready. Choose a song to play; completed downloads stay on this device.");
+                        }
+                    }
+                    Err(error) => {
+                        self.login.error = Some(error.clone());
+                        if self.screen == Screen::Connecting {
+                            self.screen = Screen::Login;
+                        }
+                        self.toast(ToastKind::Error, error);
+                    }
+                }
+            }
             AppEvent::PlaybackDownload(track) => {
                 let uri = track.uri.clone();
                 let result = self
@@ -3368,6 +3442,9 @@ impl App {
                 self.send(PlayerCmd::DownloadFinished { uri, success })
             }
             AppEvent::FreeLibraryImported { result, activate } => {
+                if !activate && self.account_synced {
+                    return;
+                }
                 self.free_importing = false;
                 match result {
                     Ok(imported) => {
@@ -4641,6 +4718,10 @@ fn window_handle(_cc: &eframe::CreationContext<'_>) -> Option<*mut std::ffi::c_v
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if !self.demo {
+            self.updater
+                .tick(&self.shared, ctx, self.config.automatic_updates);
+        }
         // Bounded per frame so a flood of events can't stall rendering.
         for _ in 0..256 {
             match self.rx.try_recv() {
@@ -4706,6 +4787,7 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.show_update_notice(&ctx);
         self.handle_shortcuts(&ctx);
         if ctx.input(|i| i.key_pressed(egui::Key::F11)) && self.screen == Screen::Main {
             self.set_fullscreen(!self.fullscreen);

@@ -747,3 +747,19 @@ Linux release startup is checked under Xvfb as well as through unit tests. The
 X11 backend loads libxkbcommon-x11 dynamically, so native packages explicitly
 depend on libxkbcommon-x11-0. Packaging version parsing also accepts CRLF Cargo
 metadata when invoked from a Windows checkout through WSL.
+
+## Account library OAuth and verified update downloads
+
+Library OAuth uses the registered public Lumen Client ID and read-only scopes,
+with a separate protected refresh token. It never opens a librespot streaming
+session. Account snapshots use a per-account ID namespace; denied playlists do
+not erase the existing library, and stale/cancelled login results are ignored.
+The UI distinguishes library connection from Premium streaming. Spotify's
+allowlist, ownership and account restrictions still apply.
+
+The updater checks only stable releases of zaydzaari/Lumen. It checks size and
+SHA-256 from the release manifest, downloads off the UI thread, and hands off to
+the normal platform installer after a user click. It does not replace a running
+executable itself. Windows setup is per-user through Inno Setup; Linux packaging
+remains Flatpak, Debian and a portable archive. Initial 0.1.0 users must manually
+install 0.1.1. Release checksum manifests must cover every published installer.

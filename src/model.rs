@@ -105,7 +105,7 @@ pub struct Profile {
     pub recent_artists: Vec<Collection>,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct UserInfo {
     pub id: String,
     pub display_name: String,

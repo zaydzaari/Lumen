@@ -26,6 +26,30 @@ For modern Linux Mint, Fedora, Arch and gaming desktops, choose the x86_64
 `.flatpak` package. Ubuntu 24.04+ users can also choose the `.deb` installer.
 See the Linux installation sections below for commands and requirements.
 
+## Account sign-in and updates (0.1.1)
+
+Choose **Continue with Spotify** to authorize read-only library access in your
+browser. Lumen imports playlists it can read and Liked Songs into its native UI,
+then uses independent playback. **Use Spotify Premium streaming** remains a
+separate option. Saved metadata and completed downloads remain usable offline.
+The Account settings include **Sync library** and **Log out**.
+
+Lumen includes its registered public Client ID and uses PKCE, without a client
+secret. Spotify development mode requires the app owner to have Premium and
+accounts to be added under **User Management** in the developer dashboard (up to
+five users). Playlist endpoints may only expose playlists the account owns or
+collaborates on. Restricted lists are reported; public playlist links and account
+JSON exports remain import options. Library sync is a read-only copy, not full
+Spotify client parity. A real account login is required to verify your access.
+
+Updates are checked at startup and every six hours, and matching stable-release
+installers download in the background with size bounds and SHA-256 verification.
+The app shows **Install update**; the normal Windows, Flatpak or Debian installer
+completes installation. Portable Linux archives require extraction. Automatic
+checks/downloads can be disabled in **Settings > Updates**. No music or credentials
+are replaced. Windows now has a per-user setup installer with a Start menu shortcut.
+Existing 0.1.0 installations need one manual upgrade to get this updater.
+
 ## Features
 
 * **Spotify-style design**: black window with rounded panels, a collapsible "Your

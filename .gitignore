@@ -10,3 +10,5 @@ spotidownloader-token.*
 # Personal imported libraries in portable installations.
 **/free-library.json
 **/free-library.json.tmp
+
+**/account-profile.json

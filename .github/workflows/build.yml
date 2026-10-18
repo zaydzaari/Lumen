@@ -74,6 +74,21 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force dist
           Copy-Item target/release/lumen.exe dist/lumen-windows-x86_64.exe
+      - name: Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $compilerPaths = @("${env:ProgramFiles(x86)}\Inno Setup *\ISCC.exe", "$env:ProgramFiles\Inno Setup *\ISCC.exe")
+          $compiler = (Get-ChildItem -Path $compilerPaths -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          if (!$compiler) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $compiler = (Get-ChildItem -Path $compilerPaths -ErrorAction SilentlyContinue | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          }
+          if (!$compiler) { throw "Inno Setup compiler was not found" }
+          $appVersion = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
+          & $compiler "/DAppVersion=$appVersion" packaging/windows/lumen.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@v4
         with:
           name: lumen-${{ runner.os }}

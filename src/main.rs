@@ -26,9 +26,11 @@ mod player;
 mod plugins;
 mod provider_catalog;
 mod spotidownloader;
+mod spotify_library;
 mod themes;
 mod tray;
 mod ui;
+mod updates;
 mod verification;
 
 use std::process::ExitCode;

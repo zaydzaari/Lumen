@@ -37,6 +37,10 @@ impl ListKey {
 }
 
 pub enum AppEvent {
+    AccountLibrary {
+        generation: u64,
+        result: Result<crate::spotify_library::Connected, String>,
+    },
     PlaybackDownload(TrackRef),
     DownloadFinished {
         uri: String,

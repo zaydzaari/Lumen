@@ -355,6 +355,8 @@ impl Default for DiscordConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
+    /// Check and download stable releases; installation uses the system installer.
+    pub automatic_updates: bool,
     /// Client ID of *your own* Spotify developer app, used for Web API calls
     /// (library, search). Leave empty to try the experimental session-token mode.
     pub client_id: String,
@@ -377,7 +379,8 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Self {
-            client_id: String::new(),
+            automatic_updates: true,
+            client_id: crate::spotify_library::DEFAULT_CLIENT_ID.into(),
             redirect_port: 8989,
             device_name: "Lumen".into(),
             device_id: String::new(),
@@ -436,6 +439,9 @@ impl Config {
             self.redirect_port = 8989;
         }
         self.client_id = self.client_id.trim().to_string();
+        if self.client_id.is_empty() {
+            self.client_id = crate::spotify_library::DEFAULT_CLIENT_ID.into();
+        }
         self.discord.client_id = self
             .discord
             .client_id

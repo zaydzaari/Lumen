@@ -182,7 +182,7 @@ pub fn parse(bytes: &[u8]) -> Result<Import> {
         });
     }
     anyhow::ensure!(
-        playlists.iter().any(|p| !p.tracks.is_empty()),
+        native || playlists.iter().any(|p| !p.tracks.is_empty()),
         "No usable Spotify music tracks found (podcasts and local-file entries are skipped)"
     );
     Ok(Import { playlists, skipped })

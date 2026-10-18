@@ -163,6 +163,10 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                                     app.toast(crate::events::ToastKind::Info, "Link copied");
                                 }
                             }
+                            if app.account_task.is_some() {
+                                ui.add_space(12.0);
+                                if pill(ui, "Cancel", None, Color32::WHITE, true).clicked() { app.cancel_account_login(); }
+                            }
                             return;
                         }
 
@@ -178,13 +182,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                             ui.add_space(16.0);
                         }
 
-                        if pill(ui, "Connect Spotify Premium", Some(pal.accent), Color32::BLACK, !app.login.busy).clicked() {
+                        if pill(ui, "Continue with Spotify", Some(pal.accent), Color32::BLACK, !app.login.busy).clicked() {
+                            app.config.client_id = app.login.client_id.trim().to_string();
+                            app.save_config();
+                            app.start_account_login(true);
+                        }
+                        ui.add_space(8.0);
+                        ui.label(RichText::new("Connect your playlists and liked songs. Lumen handles playback separately; Spotify controls account access.").small().color(pal.weak));
+                        ui.add_space(10.0);
+                        if pill(ui, "Use Spotify Premium streaming", None, Color32::WHITE, !app.login.busy).clicked() {
                             app.config.client_id = app.login.client_id.trim().to_string();
                             app.save_config();
                             app.start_login(true);
                         }
                         ui.add_space(10.0);
-                        if pill(ui, "Continue without Premium", None, Color32::WHITE, true).clicked() {
+                        if pill(ui, "Continue without signing in", None, Color32::WHITE, true).clicked() {
                             app.enter_free_mode();
                         }
                         ui.add_space(10.0);
@@ -197,12 +209,11 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         ui.add_space(14.0);
 
                         egui::CollapsingHeader::new(RichText::new("Advanced: your own developer app (optional)").color(pal.weak))
-                            .default_open(!app.login.client_id.trim().is_empty())
+                            .default_open(app.login.client_id != crate::spotify_library::DEFAULT_CLIENT_ID)
                             .show(ui, |ui| {
                                 ui.label(
                                     RichText::new(
-                                        "Playlists, liked songs, search and playback work without this. A client ID \
-                                         adds saved albums, followed artists and saving songs.",
+                                        "Lumen includes its registered public Client ID. Development-mode accounts must be allowed in the app dashboard. You can use a different registered app below.",
                                     )
                                     .color(pal.weak),
                                 );
@@ -231,8 +242,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
                         ui.vertical_centered(|ui| {
                             ui.label(
                                 RichText::new(
-                                    "Spotify streaming requires Premium. Independent playback and local files do not. \
-                                     Spotify login opens in your browser.",
+                                    "Spotify streaming requires Premium. Library access depends on Spotify app permissions. Local files work without signing in.",
                                 )
                                 .small()
                                 .color(pal.weak),

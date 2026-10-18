@@ -15,8 +15,9 @@ use crate::player::PlayerCmd;
 const MAX_W: f32 = 880.0;
 const CONTROL_W: f32 = 300.0;
 
-const SECTIONS: [(&str, &str); 9] = [
+const SECTIONS: [(&str, &str); 10] = [
     ("account", "Account"),
+    ("updates", "Updates"),
     ("library", "Local files"),
     ("audio", "Audio"),
     ("display", "Display"),
@@ -428,6 +429,7 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.set_max_width(MAX_W.min(ui.available_width()));
             ui.add_space(4.0);
             account(app, ui, &mut c);
+            updates(app, ui, &mut c);
             local_files(app, ui, &mut c);
             audio(app, ui, &mut c);
             display(app, ui, &mut c);
@@ -467,12 +469,31 @@ fn account(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
                 let _ = open::that_detached("https://www.spotify.com/account/overview/");
             }
         });
+    } else if app.account_connected {
+        let name = app.username.clone();
+        row(
+            ui,
+            c,
+            &name,
+            "Spotify library connected · independent playback",
+            |ui| {
+                if button_ex(ui, "Sync library", &pal, true, !app.login.busy).clicked() {
+                    app.start_account_login(false);
+                }
+                if button(ui, "Log out", &pal).clicked() {
+                    app.logout();
+                }
+            },
+        );
+        if app.login.busy {
+            ui.label(&app.login.status);
+        }
     } else {
         row(
             ui,
             c,
             "Not signed in",
-            "Log in to play music from Spotify",
+            "Connect your Spotify library or play local files",
             |ui| {
                 if button_ex(ui, "Log in", &pal, true, true).clicked() {
                     app.screen = super::Screen::Login;
@@ -502,7 +523,7 @@ fn account(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
     let desc = if app.backend.is_some() && !session {
         "Your developer app is connected."
     } else {
-        "Optional — everything works without it. Adds Spotify's own Recently played and Top lists to Home."
+        "Public Client ID for library sign-in. Spotify development apps require the app owner to have Premium and accounts to be allowlisted."
     };
     row(ui, c, "Spotify developer app (client ID)", desc, |ui| {
         if button_ex(
@@ -510,12 +531,16 @@ fn account(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
             "Connect",
             &pal,
             true,
-            !app.login.busy && !app.config.client_id.is_empty() && app.backend.is_some(),
+            !app.login.busy && !app.config.client_id.is_empty(),
         )
         .clicked()
         {
             app.save_config();
-            app.connect_library();
+            if app.backend.is_some() {
+                app.connect_library();
+            } else {
+                app.start_account_login(true);
+            }
         }
         let r = input(ui, &mut app.config.client_id, "Client ID", 220.0, &pal);
         if r.lost_focus() {
@@ -1276,4 +1301,31 @@ fn plugins(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
         app.save_config();
         app.reload_plugins();
     }
+}
+
+fn updates(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
+    let pal = c.pal;
+    section(ui, c, "updates", "Updates");
+    let state = app.updater.snapshot();
+    row(ui, c, "Automatically download updates", "Checks GitHub on startup and every six hours. Installation uses the normal system installer; portable Linux archives need extraction.", |ui| {
+        if ui.add(widgets::Switch::new(&mut app.config.automatic_updates, "").inline()).changed() { app.save_config(); }
+    });
+    let status = if state.status.is_empty() {
+        format!("Lumen {}", env!("CARGO_PKG_VERSION"))
+    } else {
+        state.status.clone()
+    };
+    row(ui, c, "Software version", &status, |ui| {
+        if button_ex(ui, "Check for updates", &pal, true, !state.busy).clicked() {
+            app.updater.dismissed = None;
+            app.updater
+                .check(&app.shared, ui.ctx(), app.config.automatic_updates);
+        }
+        if let Some(version) = &state.version {
+            if button(ui, "Show update", &pal).clicked() {
+                app.updater.dismissed = None;
+            }
+            ui.label(format!("Available: {version}"));
+        }
+    });
 }
