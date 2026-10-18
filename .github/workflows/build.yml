@@ -42,6 +42,26 @@ jobs:
       - name: Package Linux
         if: runner.os == 'Linux'
         run: bash packaging/linux/package.sh
+      - name: Build Flatpak variant
+        if: runner.os == 'Linux'
+        run: |
+          cargo clippy --all-targets --locked --no-default-features --features media-controls -- -D warnings
+          cargo build --release --locked --no-default-features --features media-controls
+      - name: Flatpak runtime
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get install -y flatpak
+          sudo flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install --assumeyes --noninteractive --no-related flathub org.gnome.Platform//50
+      - name: Package Flatpak
+        if: runner.os == 'Linux'
+        run: bash packaging/flatpak/package.sh
+      - name: Check Flatpak runtime
+        if: runner.os == 'Linux'
+        run: |
+          sudo flatpak install --assumeyes --noninteractive --no-related dist/*.flatpak
+          flatpak run --command=sh io.github.zaydzaari.Lumen -c 'ldd /app/bin/lumen > /tmp/lumen-ldd; cat /tmp/lumen-ldd; ! grep -q "not found" /tmp/lumen-ldd'
+          flatpak run --command=ffmpeg io.github.zaydzaari.Lumen -hide_banner -loglevel error -f lavfi -i sine=frequency=440:duration=0.1 -c:a libmp3lame -f mp3 - > /dev/null
       - name: Package Windows
         if: runner.os == 'Windows'
         shell: pwsh

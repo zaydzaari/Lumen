@@ -728,3 +728,17 @@ natively.
   required for Linux verification even with the optional tray disabled. Native
   live provider acceptance and physical Linux audio need real-session/hardware
   checks; synthetic runtime tests do not establish those.
+
+
+## Broad Linux distribution packaging — 2026-10-18
+
+* User requested support for friends on Mint and varied gaming/Linux distributions.
+  Add a Flatpak bundle using the supported GNOME 50 runtime alongside native .deb
+  and tarball downloads. Runtime inspection confirmed GTK3, WebKitGTK 4.1, ALSA
+  configuration and FFmpeg with libmp3lame are present.
+* Build the Flatpak variant without the optional tray feature, retaining media
+  controls. This avoids shipping host libxdo/AppIndicator shared libraries or
+  relying on a distribution's tray integration. No Chromium is bundled.
+* Flatpak exposes home folders for the existing local-file/import workflows,
+  network, graphics, audio and MPRIS. WebKit's Flatpak portal access is retained
+  for its own sandbox. No production sandbox disabling is used.

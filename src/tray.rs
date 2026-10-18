@@ -3,8 +3,9 @@
 //! On Windows/macOS the tray lives on the main (event-loop) thread; on Linux
 //! `tray-icon` needs GTK, so it runs on its own GTK thread.
 
-use crate::events::{AppEvent, UiTx};
-use crate::player::PlayerCmd;
+use crate::events::UiTx;
+#[cfg(feature = "tray")]
+use crate::{events::AppEvent, player::PlayerCmd};
 
 /// RGBA pixels for a small round "play" icon in the accent colour.
 pub fn icon_rgba(size: u32, accent: [u8; 3]) -> Vec<u8> {

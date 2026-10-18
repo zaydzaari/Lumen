@@ -19,6 +19,13 @@ on Linux only when needed).
 
 *(Screenshots from `lumen --demo`, which uses generated sample data and covers.)*
 
+## Downloads
+
+Get the app from [GitHub Releases](https://github.com/zaydzaari/Lumen/releases).
+For modern Linux Mint, Fedora, Arch and gaming desktops, choose the x86_64
+`.flatpak` package. Ubuntu 24.04+ users can also choose the `.deb` installer.
+See the Linux installation sections below for commands and requirements.
+
 ## Features
 
 * **Spotify-style design**: black window with rounded panels, a collapsible "Your
@@ -596,3 +603,22 @@ broader runtime baseline and tests Windows separately. Library files and browser
 profiles stay in the user's XDG data folders; secrets use private files on Linux
 and are excluded from Git. Private accounts/downloaded music are never included
 in release archives.
+
+
+### Flatpak for Mint, Fedora, Arch and gaming desktops
+
+Use the `.flatpak` release download for modern x86_64 distributions with Flatpak
+support, including Linux Mint and gaming desktops such as SteamOS/Bazzite:
+
+```sh
+flatpak install --user ./lumen-0.1.0-linux-x86_64.flatpak
+flatpak run io.github.zaydzaari.Lumen
+```
+
+Flatpak may download its shared GNOME runtime on first installation. That runtime
+provides GTK/WebKitGTK and FFmpeg, so separate distro packages are not needed.
+This build includes media keys and the normal player, with the optional tray icon
+omitted to avoid depending on a host AppIndicator installation. It grants network,
+graphics/audio, and home-folder access for your music/imports; application settings
+remain in Flatpak's per-app directory. Live provider verification still needs a
+human check. This package is for x86_64, not ARM or every historical Linux version.
