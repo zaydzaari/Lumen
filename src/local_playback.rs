@@ -161,6 +161,9 @@ fn worker(
                 continue;
             }
         };
+        if expected != epoch.load(Ordering::Acquire) && !matches!(command, Command::Volume(_)) {
+            continue;
+        }
         let result = (|| -> Result<()> {
             match command {
                 Command::Load {
@@ -285,6 +288,11 @@ fn worker(
         })();
         if let Err(e) = result {
             output = None;
+            // A newer pause/stop/load interrupted this open or read. Its command
+            // owns the next state; an old error must not stop the newer song.
+            if expected != epoch.load(Ordering::Acquire) {
+                continue;
+            }
             if let Some((id, _)) = current.take() {
                 let _ = events.send(Event::Error(id, format!("Local playback: {e:#}")));
             }
@@ -482,6 +490,37 @@ impl Source for LocalSource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn superseded_stream_commands_do_not_report_errors_for_the_newer_state() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let (buffer, mut writer) = crate::progressive::Buffer::create(dir.path()).unwrap();
+        writer
+            .write_all(
+                &std::fs::read(
+                    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.mp3"),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+        writer.finish(true);
+        let (tx, rx) = mpsc::sync_channel(4);
+        tx.send((
+            0,
+            Command::Stream {
+                id: 1,
+                buffer,
+                playing: false,
+                volume: 0,
+            },
+        ))
+        .unwrap();
+        tx.send((1, Command::Stop)).unwrap();
+        drop(tx);
+        let (events, mut received) = async_mpsc::unbounded_channel();
+        worker(rx, events, Arc::new(AtomicU64::new(1)));
+        assert!(received.try_recv().is_err());
+    }
     #[test]
     fn streams_and_seeks_all_formats_without_network_or_audio_device() {
         for extension in ["wav", "flac", "mp3", "ogg", "opus", "m4a"] {
