@@ -763,3 +763,10 @@ the normal platform installer after a user click. It does not replace a running
 executable itself. Windows setup is per-user through Inno Setup; Linux packaging
 remains Flatpak, Debian and a portable archive. Initial 0.1.0 users must manually
 install 0.1.1. Release checksum manifests must cover every published installer.
+
+Provider audio links may return finite HLS media playlists instead of audio
+files. Lumen fetches unencrypted segments with its bounded HTTP client and
+remuxes the local bytes before duration validation and MP3 conversion. FFmpeg
+does not fetch playlist URLs or receive provider credentials. Live, encrypted,
+byte-range and variant playlists remain unsupported. Synthetic fragmented AAC
+conversion is checked in CI alongside the existing direct AAC fixture.

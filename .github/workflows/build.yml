@@ -35,6 +35,9 @@ jobs:
       - name: Synthetic audio conversion
         if: runner.os == 'Linux'
         run: cargo test --locked service_aac_response_is_converted_tagged_and_decodable -- --ignored
+      - name: Synthetic segmented audio conversion
+        if: runner.os == 'Linux'
+        run: cargo test --locked service_hls_response_is_converted_tagged_and_decodable -- --ignored
       - name: Linux verification runtime smoke test
         if: runner.os == 'Linux'
         run: dbus-run-session -- xvfb-run -a cargo test --locked native_webkit_fixture -- --ignored --test-threads=1

@@ -153,12 +153,14 @@ async fn resolve(client: &Client, endpoint: &str, id: &str, token: &str) -> Resu
     )
 }
 
-async fn fetch(id: &str, token: &str, destination: &Path) -> Result<()> {
-    let client = client()?;
-    let mut url = resolve(&client, ENDPOINT, id, token).await?;
+async fn audio_response(
+    client: &Client,
+    mut url: url::Url,
+    token: &str,
+) -> Result<(url::Url, reqwest::Response)> {
     let mut redirects = 0;
-    let mut response = loop {
-        let response = audio_request(&client, &url, token)?
+    let response = loop {
+        let response = audio_request(client, &url, token)?
             .send()
             .await
             .map_err(|_| anyhow::anyhow!("SpotiDownloader audio could not be reached."))?;
@@ -192,22 +194,146 @@ async fn fetch(id: &str, token: &str, destination: &Path) -> Result<()> {
             .is_none_or(|n| n <= MAX_AUDIO as u64),
         "SpotiDownloader audio exceeds 100 MB."
     );
-    let mut file =
-        std::fs::File::create(destination).context("Could not create downloaded audio")?;
-    let mut size = 0;
+    Ok((url, response))
+}
+
+async fn audio_bytes(response: &mut reqwest::Response, limit: usize) -> Result<Vec<u8>> {
+    let mut bytes = Vec::new();
     while let Some(chunk) = response
         .chunk()
         .await
         .map_err(|_| anyhow::anyhow!("SpotiDownloader audio download was interrupted."))?
     {
-        size += chunk.len();
-        anyhow::ensure!(size <= MAX_AUDIO, "SpotiDownloader audio exceeds 100 MB.");
+        anyhow::ensure!(
+            bytes.len() + chunk.len() <= limit,
+            "SpotiDownloader audio exceeds the download limit."
+        );
+        bytes.extend_from_slice(&chunk);
+    }
+    Ok(bytes)
+}
+
+async fn write_audio(
+    response: &mut reqwest::Response,
+    file: &mut std::fs::File,
+    size: &mut usize,
+) -> Result<()> {
+    let start = *size;
+    while let Some(chunk) = response
+        .chunk()
+        .await
+        .map_err(|_| anyhow::anyhow!("SpotiDownloader audio download was interrupted."))?
+    {
+        anyhow::ensure!(
+            *size + chunk.len() <= MAX_AUDIO,
+            "SpotiDownloader audio exceeds 100 MB."
+        );
+        *size += chunk.len();
         file.write_all(&chunk)
             .context("Could not write downloaded audio")?;
     }
-    anyhow::ensure!(size > 0, "SpotiDownloader audio is empty.");
-    file.sync_all()?;
+    anyhow::ensure!(*size > start, "SpotiDownloader audio is empty.");
     Ok(())
+}
+
+/// Only finite, unencrypted media playlists. Network URLs are fetched by our
+/// bounded HTTP client; FFmpeg never receives a remote playlist or credentials.
+pub(crate) fn hls_parts(bytes: &[u8], base: &url::Url) -> Result<Vec<url::Url>> {
+    let text = std::str::from_utf8(bytes).context("Invalid audio playlist")?;
+    anyhow::ensure!(
+        bytes.len() <= 256 * 1024
+            && text.starts_with("#EXTM3U")
+            && text.lines().any(|l| l.trim() == "#EXT-X-ENDLIST"),
+        "The provider returned an unsupported or live audio playlist."
+    );
+    let mut parts = Vec::new();
+    let mut segments = 0;
+    for line in text.lines().map(str::trim) {
+        anyhow::ensure!(
+            ![
+                "#EXT-X-KEY:",
+                "#EXT-X-SESSION-KEY:",
+                "#EXT-X-BYTERANGE:",
+                "#EXT-X-STREAM-INF:",
+                "#EXT-X-DISCONTINUITY"
+            ]
+            .iter()
+            .any(|tag| line.starts_with(tag)),
+            "The provider returned an encrypted or unsupported audio playlist."
+        );
+        let reference = if let Some(map) = line.strip_prefix("#EXT-X-MAP:") {
+            anyhow::ensure!(
+                parts.is_empty() && !map.contains("BYTERANGE"),
+                "Unsupported audio initialization segment"
+            );
+            map.strip_prefix("URI=\"")
+                .and_then(|v| v.strip_suffix('"'))
+                .context("Invalid audio initialization segment")?
+        } else if !line.is_empty() && !line.starts_with('#') {
+            segments += 1;
+            line
+        } else {
+            continue;
+        };
+        anyhow::ensure!(parts.len() < 1001, "Audio playlist has too many segments");
+        let joined = base
+            .join(reference)
+            .map_err(|_| anyhow::anyhow!("Invalid audio segment link"))?;
+        parts.push(audio_url(joined.as_str())?);
+    }
+    anyhow::ensure!(segments > 0, "Audio playlist contains no segments");
+    Ok(parts)
+}
+
+async fn fetch(id: &str, token: &str, destination: &Path) -> Result<bool> {
+    let client = client()?;
+    let url = resolve(&client, ENDPOINT, id, token).await?;
+    let (url, mut response) = audio_response(&client, url, token).await?;
+    let mut bytes = Vec::new();
+    while bytes.len() < 7 {
+        let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| anyhow::anyhow!("SpotiDownloader audio download was interrupted."))?
+        else {
+            break;
+        };
+        bytes.extend_from_slice(&chunk);
+    }
+    anyhow::ensure!(!bytes.is_empty(), "SpotiDownloader audio is empty.");
+    let hls = bytes.starts_with(b"#EXTM3U");
+    let mut file =
+        std::fs::File::create(destination).context("Could not create downloaded audio")?;
+    if hls {
+        anyhow::ensure!(bytes.len() <= 256 * 1024, "Audio playlist is too large");
+        bytes.extend(audio_bytes(&mut response, 256 * 1024 - bytes.len()).await?);
+        let parts = hls_parts(&bytes, &url)?;
+        let mut size = 0;
+        for part in parts {
+            let (_, mut response) = audio_response(&client, part, token).await?;
+            write_audio(&mut response, &mut file, &mut size).await?;
+        }
+    } else {
+        file.write_all(&bytes)
+            .context("Could not write downloaded audio")?;
+        let mut size = bytes.len();
+        // The first response chunk may already contain the complete file.
+        while let Some(chunk) = response
+            .chunk()
+            .await
+            .map_err(|_| anyhow::anyhow!("SpotiDownloader audio download was interrupted."))?
+        {
+            anyhow::ensure!(
+                size + chunk.len() <= MAX_AUDIO,
+                "SpotiDownloader audio exceeds 100 MB."
+            );
+            size += chunk.len();
+            file.write_all(&chunk)
+                .context("Could not write downloaded audio")?;
+        }
+    }
+    file.sync_all()?;
+    Ok(hls)
 }
 
 fn audio_request(client: &Client, url: &url::Url, token: &str) -> Result<reqwest::RequestBuilder> {
@@ -223,15 +349,22 @@ fn audio_request(client: &Client, url: &url::Url, token: &str) -> Result<reqwest
     Ok(request)
 }
 
-pub async fn download(id: &str, token: &str, destination: &Path, stop: &AtomicBool) -> Result<()> {
+pub async fn download(
+    id: &str,
+    token: &str,
+    destination: &Path,
+    stop: &AtomicBool,
+) -> Result<bool> {
     let job = fetch(id, token, destination);
     tokio::pin!(job);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(180);
     loop {
         if stop.load(Ordering::Relaxed) {
             bail!("Download cancelled");
         }
         tokio::select! {
             result = &mut job => return result,
+            _ = tokio::time::sleep_until(deadline) => bail!("SpotiDownloader audio download timed out."),
             _ = tokio::time::sleep(Duration::from_millis(200)) => {},
         }
     }
@@ -240,6 +373,25 @@ pub async fn download(id: &str, token: &str, destination: &Path, stop: &AtomicBo
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn finite_audio_playlists_resolve_segments_and_reject_unsafe_variants() {
+        let base = url::Url::parse("https://cdn.example.com/song/list.m3u8").unwrap();
+        let parts = hls_parts(b"#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:10,\npart1.m4s\n#EXTINF:2,\nhttps://other.example.com/part2.m4s\n#EXT-X-ENDLIST\n", &base).unwrap();
+        assert_eq!(parts.len(), 3);
+        assert_eq!(parts[0].as_str(), "https://cdn.example.com/song/init.mp4");
+        assert_eq!(parts[1].as_str(), "https://cdn.example.com/song/part1.m4s");
+        for invalid in [
+            "#EXTM3U\npart.ts\n",
+            "#EXTM3U\n#EXT-X-KEY:METHOD=AES-128,URI=\"key\"\npart.ts\n#EXT-X-ENDLIST",
+            "#EXTM3U\n#EXT-X-BYTERANGE:10@0\npart.ts\n#EXT-X-ENDLIST",
+            "#EXTM3U\nfile:///private\n#EXT-X-ENDLIST",
+            "#EXTM3U\nhttps://127.0.0.1/private\n#EXT-X-ENDLIST",
+            "#EXTM3U\n#EXT-X-ENDLIST",
+        ] {
+            assert!(hls_parts(invalid.as_bytes(), &base).is_err());
+        }
+    }
 
     #[test]
     fn expired_sessions_refresh_only_when_needed() {

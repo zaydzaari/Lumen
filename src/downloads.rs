@@ -787,10 +787,15 @@ fn download_service(
     let audio = stage.join("audio.mp3");
     // Never let a failed service request leave an older provider's audio behind.
     let _ = fs::remove_file(&audio);
-    if let Err(error) = runtime.block_on(crate::spotidownloader::download(id, token, &audio, stop))
-    {
-        let _ = fs::remove_file(&audio);
-        return Err(error);
+    let hls = match runtime.block_on(crate::spotidownloader::download(id, token, &audio, stop)) {
+        Ok(hls) => hls,
+        Err(error) => {
+            let _ = fs::remove_file(&audio);
+            return Err(error);
+        }
+    };
+    if hls {
+        normalize_segmented_audio(&stage, stop)?;
     }
     finish(
         track,
@@ -799,6 +804,30 @@ fn download_service(
         stop,
         crate::spotidownloader::SITE.into(),
     )
+}
+
+fn normalize_segmented_audio(stage: &Path, stop: &AtomicBool) -> Result<()> {
+    // Rebuild the duration/index of concatenated fragmented MP4 or transport
+    // stream audio. Limit protocols to local files, even for malformed input.
+    let normalized = stage.join("normalized.m4a");
+    let mut remux = command("ffmpeg");
+    remux
+        .args([
+            "-nostdin",
+            "-v",
+            "error",
+            "-y",
+            "-protocol_whitelist",
+            "file",
+            "-i",
+        ])
+        .arg(stage.join("audio.mp3"))
+        .args(["-map", "0:a:0", "-c:a", "copy"])
+        .arg(&normalized);
+    run(remux, stage, "segments", stop, 180)?;
+    fs::remove_file(stage.join("audio.mp3"))?;
+    fs::rename(normalized, stage.join("audio.mp3"))?;
+    Ok(())
 }
 
 fn completed_track(track: &Track, path: &Path) -> Result<Track> {
@@ -872,6 +901,8 @@ fn finish(
         "download.err",
         "tags.out",
         "tags.err",
+        "segments.out",
+        "segments.err",
     ] {
         let _ = fs::remove_file(stage.join(name));
     }
@@ -882,6 +913,69 @@ fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "uses FFmpeg to generate and remux a synthetic fragmented HLS response"]
+    fn service_hls_response_is_converted_tagged_and_decodable() {
+        use std::io::Write as _;
+        let dir = tempfile::tempdir().unwrap();
+        let stage = dir.path().join(".incomplete").join("fixture");
+        fs::create_dir_all(&stage).unwrap();
+        let stop = AtomicBool::new(false);
+        let mut generate = command("ffmpeg");
+        generate.current_dir(&stage);
+        generate
+            .args(["-nostdin", "-v", "error", "-y", "-i"])
+            .arg(Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/tone.m4a"))
+            .args([
+                "-c:a",
+                "copy",
+                "-hls_time",
+                "0.25",
+                "-hls_segment_type",
+                "fmp4",
+                "-hls_list_size",
+                "0",
+            ])
+            .arg("list.m3u8");
+        run(generate, &stage, "fixture", &stop, 30).unwrap();
+        let parts = crate::spotidownloader::hls_parts(
+            &fs::read(stage.join("list.m3u8")).unwrap(),
+            &url::Url::parse("https://cdn.example.com/list.m3u8").unwrap(),
+        )
+        .unwrap();
+        assert!(parts.len() > 2);
+        let mut output = File::create(stage.join("audio.mp3")).unwrap();
+        for part in parts {
+            output
+                .write_all(&fs::read(stage.join(part.path().trim_start_matches('/'))).unwrap())
+                .unwrap();
+        }
+        drop(output);
+        normalize_segmented_audio(&stage, &stop).unwrap();
+        let mut track = track();
+        track.duration_ms = 1000;
+        let (file, _) = finish(
+            &track,
+            dir.path(),
+            &stage,
+            &stop,
+            crate::spotidownloader::SITE.into(),
+        )
+        .unwrap();
+        let path = dir.path().join(file);
+        assert_eq!(
+            lofty::read_from_path(&path).unwrap().file_type(),
+            lofty::file::FileType::Mpeg
+        );
+        assert!(
+            crate::local_playback::LocalSource::open(&path)
+                .unwrap()
+                .take(48000)
+                .count()
+                > 0
+        );
+    }
+
     #[test]
     #[ignore = "uses FFmpeg to convert a synthetic AAC/MP4 service response"]
     fn service_aac_response_is_converted_tagged_and_decodable() {
