@@ -599,7 +599,7 @@ needs a real-session check. The manual token option remains available.
 On Ubuntu 24.04 or newer, install the `.deb` from GitHub Releases using:
 
 ```sh
-sudo apt install ./lumen_0.1.0_amd64.deb
+sudo apt install ./lumen_0.1.1_amd64.deb
 lumen
 ```
 
@@ -635,7 +635,7 @@ Use the `.flatpak` release download for modern x86_64 distributions with Flatpak
 support, including Linux Mint and gaming desktops such as SteamOS/Bazzite:
 
 ```sh
-flatpak install --user ./lumen-0.1.0-linux-x86_64.flatpak
+flatpak install --user ./lumen-0.1.1-linux-x86_64.flatpak
 flatpak run io.github.zaydzaari.Lumen
 ```
 
