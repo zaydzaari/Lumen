@@ -742,3 +742,8 @@ natively.
 * Flatpak exposes home folders for the existing local-file/import workflows,
   network, graphics, audio and MPRIS. WebKit's Flatpak portal access is retained
   for its own sandbox. No production sandbox disabling is used.
+
+Linux release startup is checked under Xvfb as well as through unit tests. The
+X11 backend loads libxkbcommon-x11 dynamically, so native packages explicitly
+depend on libxkbcommon-x11-0. Packaging version parsing also accepts CRLF Cargo
+metadata when invoked from a Windows checkout through WSL.

@@ -334,7 +334,7 @@ xcode-select --install   # once
 ```sh
 # Debian/Ubuntu
 sudo apt install build-essential cmake pkg-config libasound2-dev libgtk-3-dev \
-  libayatana-appindicator3-dev libxdo-dev libxkbcommon-dev libgl1-mesa-dev libwebkit2gtk-4.1-dev libssl-dev ffmpeg
+  libayatana-appindicator3-dev libxdo-dev libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev libwebkit2gtk-4.1-dev libssl-dev ffmpeg
 # Fedora
 sudo dnf install cmake alsa-lib-devel gtk3-devel libayatana-appindicator-gtk3-devel \
   libxkbcommon-devel mesa-libGL-devel webkit2gtk4.1-devel openssl-devel ffmpeg
@@ -592,7 +592,7 @@ To build from source on Ubuntu:
 ```sh
 sudo apt update
 sudo apt install build-essential pkg-config cmake libasound2-dev libgtk-3-dev \
-  libayatana-appindicator3-dev libxdo-dev libxkbcommon-dev libgl1-mesa-dev \
+  libayatana-appindicator3-dev libxdo-dev libxkbcommon-dev libxkbcommon-x11-0 libgl1-mesa-dev \
   libwebkit2gtk-4.1-dev libssl-dev ffmpeg
 bash build.sh
 ```

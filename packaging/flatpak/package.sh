@@ -4,7 +4,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 app_id=io.github.zaydzaari.Lumen
-version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1 | tr -d '\r')
 arch=$(uname -m)
 mkdir -p dist
 stage=$(mktemp -d)

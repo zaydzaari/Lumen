@@ -2,7 +2,7 @@
 # Run from any directory after cargo build --release --locked.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1)
+version=$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -1 | tr -d '\r')
 arch=$(uname -m)
 mkdir -p dist
 stage=$(mktemp -d)
@@ -29,7 +29,7 @@ Section: sound
 Priority: optional
 Architecture: amd64
 Maintainer: Lumen contributors <noreply@github.com>
-Depends: libasound2t64, libgtk-3-0t64, libayatana-appindicator3-1, libxdo3, libwebkit2gtk-4.1-0, libxkbcommon0, libgl1, ca-certificates, ffmpeg
+Depends: libasound2t64, libgtk-3-0t64, libayatana-appindicator3-1, libxdo3, libwebkit2gtk-4.1-0, libxkbcommon0, libxkbcommon-x11-0, libgl1, ca-certificates, ffmpeg
 Recommends: xdg-utils
 Description: Lightweight native music player
  Local files, personal playlist imports, lyrics and independent playback.
