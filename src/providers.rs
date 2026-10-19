@@ -522,4 +522,93 @@ mod tests {
             .into_iter()
             .any(|t| track(Kind::Youtube, t).is_some()));
     }
+
+    #[tokio::test]
+    #[ignore = "live muted audio and provider browser; set LUMEN_PROVIDER_TEST_EXE to a built Lumen binary"]
+    async fn live_guest_stream_reaches_audio_output() {
+        use std::io::Write as _;
+        let executable =
+            std::env::var_os("LUMEN_PROVIDER_TEST_EXE").expect("Set the test helper executable");
+        let directory = tempfile::tempdir().unwrap();
+        sonora_music::credentials::configure_root(directory.path().to_path_buf());
+        let (_tx, input) = mpsc::unbounded_channel();
+        let connected = connect(
+            Settings {
+                kind: Kind::Youtube,
+                ..Default::default()
+            },
+            String::new(),
+            false,
+            Arc::new(|_| {}),
+            input,
+        )
+        .await
+        .unwrap();
+        let tracks = connected
+            .session
+            .api
+            .search("Lord Huron The Night We Met")
+            .await
+            .unwrap();
+        let original = Track {
+            name: "The Night We Met".into(),
+            artists: "Lord Huron".into(),
+            duration_ms: 208_000,
+            ..Default::default()
+        };
+        let id = tracks
+            .into_iter()
+            .find(|t| matches(&original, t))
+            .and_then(|t| t.id)
+            .expect("Matching recording");
+        let (player, mut events) = connected
+            .session
+            .playback
+            .start(sonora_music::PlaybackConfig {
+                normalisation: false,
+                gapless: false,
+                position_interval: Duration::from_millis(250),
+                gain: 0.,
+                equalizer: Default::default(),
+            });
+        player.load(&id, Duration::ZERO, false).unwrap();
+        let mut browser = None;
+        let mut polling = tokio::time::interval(Duration::from_millis(200));
+        let outcome = tokio::time::timeout(Duration::from_secs(90), async {
+            loop {
+                tokio::select! {
+                    event = events.next() => match event.expect("Playback event stream closed") {
+                        PlaybackEvent::Playing { .. } => break,
+                        PlaybackEvent::Unavailable { .. } | PlaybackEvent::Refused | PlaybackEvent::Gated => panic!("Provider refused guest audio"),
+                        _ => {},
+                    },
+                    _ = polling.tick() => {
+                        if browser.is_none() {
+                            if let Some(binding) = sonora_music::potoken::wanted() {
+                                let executable = executable.clone();
+                                browser = Some(tokio::task::spawn_blocking(move || {
+                                    let request = crate::provider_browser::Request { kind: Kind::Youtube, binding: Some(binding.clone()) };
+                                    let mut child = std::process::Command::new(executable).arg("--provider-browser")
+                                        .stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null()).spawn().unwrap();
+                                    child.stdin.take().unwrap().write_all(&serde_json::to_vec(&request).unwrap()).unwrap();
+                                    let output = child.wait_with_output().unwrap();
+                                    let reply: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+                                    let token = reply["cookie"].as_str().and_then(|c| c.split(';').find_map(|part| part.trim().strip_prefix("SONORA_POT="))).filter(|t| !t.starts_with('!'));
+                                    if let Some(token) = token { sonora_music::potoken::give(&binding, token.to_owned()); } else { sonora_music::potoken::failed(&binding); }
+                                }));
+                            }
+                        } else if browser.as_ref().is_some_and(|task| task.is_finished()) {
+                            browser.take().unwrap().await.unwrap();
+                        }
+                    },
+                }
+            }
+        }).await;
+        player.pause();
+        drop(player);
+        if let Some(browser) = browser {
+            browser.await.unwrap();
+        }
+        outcome.expect("No audible-output event before timeout (output is muted)");
+    }
 }
