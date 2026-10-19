@@ -1,0 +1,213 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.43.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/sonorahq/sonora"
+
+[workspace.dependencies]
+embed = { path = "crates/embed" }
+i18n = { path = "crates/i18n" }
+icons = { path = "crates/icons" }
+music = { path = "crates/music" }
+state = { path = "crates/state" }
+storage = { path = "crates/storage" }
+input = { path = "crates/input" }
+router = { path = "crates/router" }
+ui = { path = "crates/ui" }
+views = { path = "crates/views" }
+webview = { path = "crates/webview" }
+widevine = { path = "crates/widevine" }
+
+alsa = "0.10"
+anyhow = "1.0"
+async-trait = "0.1"
+base64 = "0.22"
+blowfish = "0.9"
+bytes = "1"
+cbc = "0.1"
+cc = "1"
+flate2 = "1"
+cpal = "0.17"
+dirs = "6.0"
+discord-rich-presence = "1.1"
+deunicode = "1.6"
+env_logger = "0.11"
+fastrand = "2.5"
+futures = "0.3"
+fluent-bundle = "0.16"
+gpui = { git = "https://github.com/sonorahq/gpui", rev = "439295d5c1e21682a704b93a6ade6a7d5a585ccd" }
+gpui_platform = { git = "https://github.com/sonorahq/gpui", rev = "439295d5c1e21682a704b93a6ade6a7d5a585ccd", features = [
+  "font-kit",
+  "wayland",
+  "x11",
+] }
+http = "1.3"
+winresource = "0.1"
+windows = { version = "0.62", features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_System_LibraryLoader",
+  "Win32_System_Registry",
+  "Win32_UI_Controls",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+windows-sys = { version = "0.61", features = [
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Power",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+webview2-com = "0.39"
+interprocess = "2.4"
+widestring = "1.2"
+image = { version = "0.25", default-features = false, features = [
+  "jpeg",
+  "png",
+  "webp",
+] }
+jiff = { version = "0.2", default-features = false, features = [
+  "std",
+  "tz-system",
+  "tzdb-bundle-platform",
+  "tzdb-zoneinfo",
+] }
+kakasi = "0.1"
+ksni = { version = "0.3", default-features = false, features = ["async-io", "blocking"] }
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"] }
+libc = "0.2"
+lofty = "0.25"
+log = "0.4"
+md-5 = "0.10"
+moka = { version = "0.12.15", features = ["future", "sync"] }
+mpris-server = "0.10"
+notify = "8.2"
+oauth2 = "5.0"
+open = "5.4"
+block2 = "0.6"
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", default-features = false, features = ["std"] }
+objc2-web-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "block2",
+  "objc2-app-kit",
+  "objc2-core-foundation",
+  "WKHTTPCookieStore",
+  "WKNavigation",
+  "WKUserContentController",
+  "WKUserScript",
+  "WKWebView",
+  "WKWebViewConfiguration",
+  "WKWebsiteDataStore",
+] }
+objc2-app-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "NSAccessibility",
+  "NSApplication",
+  "NSMenu",
+  "NSMenuItem",
+  "NSResponder",
+  "NSRunningApplication",
+  "NSStatusItem",
+  "NSWorkspace",
+] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = [
+  "std",
+  "CFString",
+] }
+objc2-io-kit = { version = "0.3", default-features = false, features = [
+  "std",
+  "pwr_mgt",
+] }
+ashpd = { version = "0.13", default-features = false, features = [
+  "async-io",
+  "inhibit",
+  "settings",
+] }
+reqwest = { version = "0.13", default-features = false, features = [
+  "blocking",
+  "form",
+  "json",
+  "query",
+  "rustls",
+] }
+raw-window-handle = "0.6"
+resvg = { version = "0.46", default-features = false }
+roxmltree = "0.21"
+rodio = { version = "0.22", default-features = false, features = ["playback"] }
+rtrb = "0.3"
+rusqlite = { version = "0.32" }
+rustfft = "6.4"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std"] }
+serde = { version = "1.0", features = ["derive", "rc"] }
+serde_json = { version = "1.0", features = ["raw_value"] }
+serde_norway = "0.9"
+sha2 = "0.10"
+smallvec = { version = "1.15", features = ["union"] }
+souvlaki = "0.8"
+sys-locale = "0.3"
+symphonia = { version = "0.5.5", default-features = false, features = ["mkv", "ogg", "isomp4"] }
+tempfile = "3.27"
+tray-icon = { version = "0.24", default-features = false }
+unic-langid = { version = "0.9", features = ["macros"] }
+unicode-segmentation = "1.12"
+ytmusic = { git = "https://github.com/sonorahq/ytmusic-rs", rev = "0022146" }
+
+librespot-core = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31", default-features = false, features = [
+  "rustls-tls-native-roots",
+] }
+librespot-oauth = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31", default-features = false, features = [
+  "rustls-tls-native-roots",
+] }
+librespot-playback = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31", default-features = false, features = [
+  "rodio-backend",
+  "rustls-tls-native-roots",
+] }
+librespot-protocol = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31" }
+percent-encoding = "2.3"
+protobuf = "3"
+opensubsonic = "0.4.0"
+tokio = { version = "1.53", features = [
+  "rt-multi-thread",
+  "net",
+  "io-util",
+  "macros",
+  "sync",
+  "time",
+] }
+time = { version = "0.3.55", features = ["parsing"] }
+
+[patch.crates-io]
+librespot-audio = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31" }
+librespot-core = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31" }
+librespot-metadata = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31" }
+librespot-oauth = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31" }
+librespot-playback = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31" }
+librespot-protocol = { git = "https://github.com/sonorahq/librespot", rev = "f5da0664e93b601cafa48ea41b5f08153b3c4f31" }
+rodio = { git = "https://github.com/RustAudio/rodio", rev = "4aa22e85e5ad5565c45dfdda95051158eb6b56c3" }
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "debuginfo"
+
+[profile.dev]
+split-debuginfo = "unpacked"
+
+[profile.dev.package.ui]
+debug = false
+opt-level = 2
+
+[profile.dev.package.views]
+debug = false
+opt-level = 2
+
+[profile.dev.package."*"]
+debug = false
+opt-level = 2

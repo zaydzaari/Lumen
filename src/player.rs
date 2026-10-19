@@ -115,6 +115,7 @@ pub const UPCOMING_PREVIEW: usize = 100;
 const HISTORY_CAP: usize = 200;
 
 pub enum PlayerCmd {
+    NativeProvider(Option<Arc<crate::providers::Connected>>),
     Independent(bool),
     PlaybackBuffer {
         uri: String,
@@ -491,6 +492,7 @@ fn offline_engine(audio: AudioSettings, volume: u8, ui: UiTx) -> Result<Engine> 
         current_file: None,
         current_stream: None,
         downloads: None,
+        native: None,
         independent: false,
         waiting_download: None,
         mode: Mode::Local,
@@ -547,6 +549,7 @@ struct Engine {
     current_file: Option<std::path::PathBuf>,
     current_stream: Option<Arc<crate::progressive::Buffer>>,
     downloads: Option<Arc<crate::downloads::Library>>,
+    native: Option<crate::providers::Engine>,
     session: Session,
     mixer: Arc<SoftMixer>,
     audio: AudioSettings,
@@ -585,8 +588,114 @@ async fn recv_opt(ch: &mut Option<PlayerEventChannel>) -> Option<PlayerEvent> {
         None => std::future::pending().await,
     }
 }
+async fn recv_native(
+    engine: &mut Option<crate::providers::Engine>,
+) -> Option<crate::providers::Event> {
+    match engine {
+        Some(engine) => engine.rx.recv().await,
+        None => std::future::pending().await,
+    }
+}
 
 impl Engine {
+    fn handle_native_event(&mut self, event: crate::providers::Event) {
+        use crate::providers::Event;
+        use sonora_music::PlaybackEvent as P;
+        if !self.is_native() {
+            return;
+        }
+        match event {
+            Event::Resolved { generation, result } => {
+                let Some(native) = &mut self.native else {
+                    return;
+                };
+                if generation != native.generation {
+                    return;
+                }
+                let result = result.and_then(|id| native.resolved(generation, id));
+                if result.is_err() {
+                    self.ui.toast(ToastKind::Error, "The provider could not play a matching recording. Check the provider connection or search for the song directly.");
+                    self.advance_stop();
+                }
+            }
+            Event::Prefetched {
+                generation,
+                uri,
+                result: Ok(id),
+            } => {
+                if self.peek_next().is_some_and(|track| track.uri == uri) {
+                    if let Some(native) = &mut self.native {
+                        native.prefetched(generation, uri, id);
+                    }
+                }
+            }
+            Event::Prefetched { .. } => {}
+            Event::Playback(event) => {
+                let native = self.native.as_ref().unwrap();
+                if native.id.is_none()
+                    || event
+                        .id()
+                        .is_some_and(|id| Some(id) != native.id.as_deref())
+                {
+                    return;
+                }
+                let ms = |at: Duration| at.as_millis().min(u128::from(u32::MAX)) as u32;
+                match event {
+                    P::Loading { at, .. } => {
+                        self.loading = true;
+                        self.set_position(ms(at));
+                    }
+                    P::Playing { at, .. } => {
+                        self.playing = true;
+                        self.loading = false;
+                        self.set_position(ms(at));
+                    }
+                    P::Paused { at, .. } => {
+                        self.playing = false;
+                        self.loading = false;
+                        self.set_position(ms(at));
+                    }
+                    P::Position { at, .. } | P::Seeked { at, .. } => {
+                        self.set_position(ms(at));
+                        if self.current.as_ref().is_some_and(|t| {
+                            t.duration_ms > 0 && t.duration_ms.saturating_sub(ms(at)) < 10_000
+                        }) {
+                            if let Some(next) = self.peek_next() {
+                                self.native.as_mut().unwrap().prefetch(next);
+                            }
+                        }
+                    }
+                    P::Length { duration, .. } => {
+                        if let Some(track) = &mut self.current {
+                            Arc::make_mut(track).duration_ms = ms(duration);
+                        }
+                    }
+                    P::Downloaded { .. } => {
+                        if let Some(next) = self.peek_next() {
+                            self.native.as_mut().unwrap().prefetch(next);
+                        }
+                    }
+                    P::Ended { .. } => {
+                        self.advance(true);
+                        return;
+                    }
+                    P::Unavailable { .. } | P::Throttled { .. } | P::Refused | P::Gated => {
+                        self.ui.toast(ToastKind::Error, "The music provider refused this stream. Check sign-in, account access and the connection in Settings > Storage.");
+                        self.advance_stop();
+                        return;
+                    }
+                    P::OutputChanged => {}
+                }
+                self.emit();
+            }
+        }
+    }
+    fn is_native(&self) -> bool {
+        self.mode == Mode::Local
+            && self.native.as_ref().is_some_and(|n| {
+                n.uri.as_deref() == self.current.as_ref().map(|t| t.uri.as_str()) && n.uri.is_some()
+            })
+    }
     fn is_file(&self) -> bool {
         self.current_stream.is_some()
             || self.current_file.is_some()
@@ -597,6 +706,15 @@ impl Engine {
     }
 
     fn pause(&mut self) {
+        if self.is_native() {
+            if let Some(native) = &mut self.native {
+                native.playing = false;
+                native.player.pause();
+            }
+            self.playing = false;
+            self.emit();
+            return;
+        }
         if let Some(waiting) = &mut self.waiting_download {
             waiting.playing = false;
             self.playing = false;
@@ -611,6 +729,19 @@ impl Engine {
     }
 
     fn seek(&mut self, position: u32) {
+        if self.is_native() {
+            if let Some(native) = &mut self.native {
+                native.position_ms = position;
+                if native.id.is_some() {
+                    native
+                        .player
+                        .seek(Duration::from_millis(u64::from(position)));
+                }
+            }
+            self.set_position(position);
+            self.emit();
+            return;
+        }
         if let Some(buffer) = &self.current_stream {
             if !buffer.complete()
                 || self
@@ -731,6 +862,7 @@ impl Engine {
                     Some(cmd) => self.handle_cmd(cmd),
                 },
                 Some(ev) = self.file_events.recv() => self.handle_file_event(ev),
+                Some(ev) = recv_native(&mut self.native) => self.handle_native_event(ev),
                 ev = recv_opt(&mut self.events) => match ev {
                     Some(ev) => self.handle_local_event(ev),
                     None => self.events = None,
@@ -746,6 +878,7 @@ impl Engine {
         }
         self.player.stop();
         self.file_output.send(FileCmd::Stop);
+        self.native.take();
         tracing::info!("player engine stopped");
     }
 
@@ -858,7 +991,20 @@ impl Engine {
         }
 
         match cmd {
-            PlayerCmd::Independent(enabled) => self.independent = enabled,
+            PlayerCmd::Independent(enabled) => {
+                if !enabled && self.is_native() {
+                    self.advance_stop();
+                }
+                self.independent = enabled;
+            }
+            PlayerCmd::NativeProvider(connected) => {
+                if self.is_native() {
+                    self.advance_stop();
+                }
+                self.native = connected.map(|connected| {
+                    crate::providers::Engine::new(&connected, &self.audio, self.mixer.volume())
+                });
+            }
             PlayerCmd::PlaybackBuffer { uri, buffer } => self.stream_ready(&uri, buffer),
             PlayerCmd::DownloadFinished { uri, success } => self.download_finished(&uri, success),
             PlayerCmd::DownloadLibrary(library) => self.downloads = Some(library),
@@ -922,6 +1068,9 @@ impl Engine {
                 }
             }
             PlayerCmd::SetVolume(v) => {
+                if let Some(native) = &self.native {
+                    native.player.set_gain(f32::from(v) / 65535.);
+                }
                 self.mixer.set_volume(v);
                 self.file_output.send(FileCmd::Volume(v));
                 if let Some(spirc) = &self.spirc {
@@ -1098,6 +1247,15 @@ impl Engine {
 
     fn resume(&mut self) {
         self.leave_connect_mode();
+        if self.is_native() {
+            if let Some(native) = &mut self.native {
+                native.playing = true;
+                if native.id.is_some() {
+                    native.player.play();
+                }
+            }
+            return;
+        }
         if let Some(waiting) = &mut self.waiting_download {
             waiting.playing = true;
             self.emit();
@@ -1292,6 +1450,9 @@ impl Engine {
     }
 
     fn load(&mut self, t: &TrackRef, start_playing: bool, position_ms: u32) {
+        if let Some(native) = &mut self.native {
+            native.reset();
+        }
         self.waiting_download = None;
         let saved = self
             .downloads
@@ -1327,6 +1488,24 @@ impl Engine {
                 position_ms,
                 volume: self.mixer.volume(),
             });
+            self.emit();
+            return;
+        }
+        if self.native.is_some()
+            && ((self.independent && t.uri.starts_with("spotify:track:"))
+                || t.uri.starts_with("native:"))
+        {
+            self.player.stop();
+            self.play_request_id = None;
+            self.preloaded = None;
+            self.current = Some(t.clone());
+            self.loading = true;
+            self.playing = false;
+            self.set_position(position_ms);
+            self.native
+                .as_mut()
+                .unwrap()
+                .begin(t.clone(), start_playing, position_ms);
             self.emit();
             return;
         }
@@ -1448,6 +1627,9 @@ impl Engine {
     }
 
     fn advance_stop(&mut self) {
+        if let Some(native) = &mut self.native {
+            native.reset();
+        }
         self.waiting_download = None;
         self.player.stop();
         self.stop_file();
@@ -1463,7 +1645,7 @@ impl Engine {
     }
 
     fn handle_local_event(&mut self, ev: PlayerEvent) {
-        if self.is_file() || self.waiting_download.is_some() {
+        if self.is_native() || self.is_file() || self.waiting_download.is_some() {
             return;
         }
         if let PlayerEvent::PlayRequestIdChanged { play_request_id } = ev {

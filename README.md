@@ -26,6 +26,27 @@ For modern Linux Mint, Fedora, Arch and gaming desktops, choose the x86_64
 `.flatpak` package. Ubuntu 24.04+ users can also choose the `.deb` installer.
 See the Linux installation sections below for commands and requirements.
 
+## Streaming providers (0.2.0)
+
+Open **Settings > Storage > Music providers** to choose YouTube Music guest
+playback, Deezer, Apple Music, or your Subsonic/Navidrome server. These engines
+come from [Sonora](https://github.com/sonorahq/sonora); the existing native GUI
+remains in place. Search includes the connected catalogue. Imported Spotify songs
+are matched by title, artist and duration, and saved local files take priority.
+Provider streams start with buffering rather than waiting for a permanent download.
+
+YouTube guest playback needs no Premium subscription but may require browser
+attestation or sign-in. Deezer and Apple Music require accounts entitled to play
+the requested audio. Apple Music also needs a compatible Widevine module; Lumen
+shows its terms and installs it only after acceptance. The module itself is not
+redistributed. Provider sign-in uses a separate, temporary browser process.
+Credentials stay in the local app data directory and are not part of the repository.
+
+These streaming engines do not create permanent offline downloads. Switch back
+to **Download connection / offline files** for the existing saving workflow.
+Spotify streaming still requires Premium. Real-account playback for Deezer,
+Apple Music and private Subsonic servers needs testing with your own accounts.
+
 ## Playback while saving (0.1.2)
 
 Independent playback now starts SpotiDownloader audio after a small buffer,
@@ -545,7 +566,7 @@ the two example plugins.
 
 ## License
 
-MIT, see [LICENSE](LICENSE). Design notes are in [DECISIONS.md](DECISIONS.md).
+GPL-3.0-or-later for releases from 0.2.0, see [LICENSE](LICENSE). Original MIT notices remain in [LICENSE-MIT](LICENSE-MIT); see [THIRD-PARTY.md](THIRD-PARTY.md) for credits and [SOURCE-BUILD.md](SOURCE-BUILD.md) for corresponding-source builds. Design notes are in [DECISIONS.md](DECISIONS.md).
 
 ### Desktop layout
 
@@ -615,7 +636,7 @@ needs a real-session check. The manual token option remains available.
 On Ubuntu 24.04 or newer, install the `.deb` from GitHub Releases using:
 
 ```sh
-sudo apt install ./lumen_0.1.2_amd64.deb
+sudo apt install ./lumen_0.2.0_amd64.deb
 lumen
 ```
 
@@ -651,7 +672,7 @@ Use the `.flatpak` release download for modern x86_64 distributions with Flatpak
 support, including Linux Mint and gaming desktops such as SteamOS/Bazzite:
 
 ```sh
-flatpak install --user ./lumen-0.1.2-linux-x86_64.flatpak
+flatpak install --user ./lumen-0.2.0-linux-x86_64.flatpak
 flatpak run io.github.zaydzaari.Lumen
 ```
 

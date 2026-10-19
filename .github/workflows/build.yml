@@ -95,6 +95,9 @@ jobs:
           $appVersion = (Select-String -Path Cargo.toml -Pattern '^version = "([^"]+)"').Matches[0].Groups[1].Value
           & $compiler "/DAppVersion=$appVersion" packaging/windows/lumen.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Corresponding source archive
+        if: runner.os == 'Linux'
+        run: python3 packaging/source.py
       - uses: actions/upload-artifact@v4
         with:
           name: lumen-${{ runner.os }}

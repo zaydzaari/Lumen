@@ -164,7 +164,7 @@ pub fn parse(bytes: &[u8]) -> Result<Import> {
                 })
             };
             if let Some(track) = parsed.filter(|t| {
-                track_uri(&t.uri).is_some()
+                (track_uri(&t.uri).is_some() || (native && crate::providers::valid_uri(&t.uri)))
                     && !t.is_stub()
                     && t.name.len() <= 4096
                     && t.artists.len() <= 4096
@@ -236,6 +236,25 @@ pub fn search(
 mod tests {
     use super::*;
     const ID: &str = "0123456789abcdefghijkl";
+    #[test]
+    fn native_provider_library_survives_restart() {
+        let folder = tempfile::tempdir().unwrap();
+        let path = folder.path().join("library.json");
+        let playlists = vec![Playlist {
+            id: "lumen:playlist:native:youtube:songs".into(),
+            name: "Provider songs".into(),
+            tracks: vec![Track {
+                uri: "native:youtube:opaque-id".into(),
+                name: "Song".into(),
+                artists: "Artist".into(),
+                ..Default::default()
+            }],
+        }];
+        save(&path, &playlists).unwrap();
+        let imported = read(&path).unwrap();
+        assert_eq!(imported.playlists[0].tracks, playlists[0].tracks);
+        assert_eq!(imported.playlists[0].id, playlists[0].id);
+    }
     #[test]
     fn provider_playlist_identity_and_order_survive_restart() {
         let folder = tempfile::tempdir().unwrap();

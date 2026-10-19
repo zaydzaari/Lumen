@@ -25,7 +25,9 @@ mod model;
 mod player;
 mod plugins;
 mod progressive;
+mod provider_browser;
 mod provider_catalog;
+mod providers;
 mod spotidownloader;
 mod spotify_library;
 mod themes;
@@ -50,12 +52,22 @@ fn main() -> ExitCode {
 }
 
 fn run() -> anyhow::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--provider-browser") {
+        return provider_browser::run();
+    }
+    if let Some(code) = sonora_webview::probed() {
+        std::process::exit(code);
+    }
+    if let Some(module) = sonora_music::drm::hosted() {
+        return sonora_music::drm::host(&module);
+    }
     #[cfg(target_os = "linux")]
     if std::env::args().nth(1).as_deref() == Some("--download-verification") {
         return ui::verification::run_linux_helper();
     }
     let paths = config::Paths::resolve()?;
     paths.create_all()?;
+    sonora_music::credentials::configure_root(paths.data_dir.join("providers"));
     let _log_guard = logging::init(&paths.logs_dir()).context("initialising logging")?;
     tracing::info!("Lumen {} starting", env!("CARGO_PKG_VERSION"));
 

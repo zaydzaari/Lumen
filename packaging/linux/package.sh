@@ -16,6 +16,11 @@ cp -R plugins "$bundle/example-plugins"
 cp README.md "$bundle/README.md"
 mkdir -p "$bundle/licenses"
 cp assets/fonts/*-OFL.txt "$bundle/licenses/"
+install -m644 LICENSE-MIT "$bundle/licenses/LICENSE-MIT"
+install -m644 THIRD-PARTY.md "$bundle/licenses/THIRD-PARTY.md"
+install -m644 vendor/sonora/UPSTREAM.md "$bundle/licenses/Sonora-UPSTREAM.md"
+install -m644 vendor/sonora/crates/widevine/shim/LICENSE "$bundle/licenses/Widevine-shim-LICENSE"
+install -m644 vendor/sonora/crates/widevine/shim/cdm/LICENSE "$bundle/licenses/CDM-interface-LICENSE"
 tar -C "$stage" -czf "dist/lumen-${version}-linux-${arch}.tar.gz" lumen
 if command -v dpkg-deb >/dev/null 2>&1 && [[ "$arch" == x86_64 ]]; then
   deb="$stage/deb"
@@ -24,7 +29,7 @@ if command -v dpkg-deb >/dev/null 2>&1 && [[ "$arch" == x86_64 ]]; then
   install -Dm644 assets/lumen.svg "$deb/usr/share/icons/hicolor/scalable/apps/lumen.svg"
   install -Dm644 LICENSE "$deb/usr/share/doc/lumen/copyright"
   mkdir -p "$deb/DEBIAN" "$deb/usr/share/doc/lumen/licenses"
-  cp assets/fonts/*-OFL.txt "$deb/usr/share/doc/lumen/licenses/"
+  cp "$bundle/licenses/"* "$deb/usr/share/doc/lumen/licenses/"
   cat > "$deb/DEBIAN/control" <<CONTROL
 Package: lumen
 Version: ${version}

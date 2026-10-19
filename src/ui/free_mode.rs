@@ -111,6 +111,12 @@ impl App {
     }
 
     pub fn enter_free_mode(&mut self) {
+        if self.config.provider.kind != crate::providers::Kind::Downloads
+            && self.native.connected.is_none()
+            && !self.native.busy
+        {
+            self.connect_native(true);
+        }
         // Never open the Spotify streaming session for this mode: librespot exits on Free accounts.
         if let Some(backend) = self.backend.take() {
             backend.shutdown();
@@ -237,5 +243,6 @@ impl App {
             playlists,
             ..Default::default()
         });
+        self.search_native();
     }
 }

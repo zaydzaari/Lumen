@@ -19,6 +19,11 @@ install -Dm644 LICENSE "$stage/build/files/share/licenses/$app_id/LICENSE"
 install -Dm644 packaging/flatpak/io.github.zaydzaari.Lumen.metainfo.xml "$stage/build/files/share/metainfo/$app_id.metainfo.xml"
 mkdir -p "$stage/build/files/share/licenses/$app_id/fonts"
 cp assets/fonts/*-OFL.txt "$stage/build/files/share/licenses/$app_id/fonts/"
+install -m644 LICENSE-MIT "$stage/build/files/share/licenses/$app_id/LICENSE-MIT"
+install -m644 THIRD-PARTY.md "$stage/build/files/share/licenses/$app_id/THIRD-PARTY.md"
+install -m644 vendor/sonora/UPSTREAM.md "$stage/build/files/share/licenses/$app_id/Sonora-UPSTREAM.md"
+install -m644 vendor/sonora/crates/widevine/shim/LICENSE "$stage/build/files/share/licenses/$app_id/Widevine-shim-LICENSE"
+install -m644 vendor/sonora/crates/widevine/shim/cdm/LICENSE "$stage/build/files/share/licenses/$app_id/CDM-interface-LICENSE"
 flatpak build-finish --command=lumen \
   --share=network --share=ipc --socket=wayland --socket=fallback-x11 \
   --socket=pulseaudio --device=dri --filesystem=home \

@@ -2,7 +2,7 @@
 <component type="desktop-application">
   <id>io.github.zaydzaari.Lumen</id>
   <metadata_license>CC0-1.0</metadata_license>
-  <project_license>MIT</project_license>
+  <project_license>GPL-3.0-or-later</project_license>
   <name>Lumen</name>
   <summary>Native music player with playlists and offline audio</summary>
   <description><p>Lumen plays local music and imported playlists with queue controls, themes and available lyrics. Independent playback uses a configured download provider. Spotify streaming requires Premium.</p></description>
@@ -10,5 +10,5 @@
   <url type="homepage">https://github.com/zaydzaari/Lumen</url>
   <url type="bugtracker">https://github.com/zaydzaari/Lumen/issues</url>
   <content_rating type="oars-1.1"/>
-  <releases><release version="0.1.2" date="2026-10-18"/><release version="0.1.1" date="2026-10-18"/></releases>
+  <releases><release version="0.2.0" date="2026-10-19"/><release version="0.1.2" date="2026-10-18"/><release version="0.1.1" date="2026-10-18"/></releases>
 </component>

@@ -1,0 +1,32 @@
+[package]
+name = "widevine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# The host for the CDM. Off by default: it compiles the C++ shim under `shim/`, which wants a
+# C++ compiler, and everything else here is plain parsing that needs no CDM.
+cdm = []
+
+[build-dependencies]
+cc.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+dirs.workspace = true
+flate2.workspace = true
+libc.workspace = true
+log.workspace = true
+reqwest.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+smallvec.workspace = true
+tokio = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+  "Win32_Foundation",
+  "Win32_System_Console",
+  "Win32_System_Threading",
+] }

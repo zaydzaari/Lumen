@@ -1001,6 +1001,7 @@ fn discord(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
 fn storage(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
     let pal = c.pal;
     section(ui, c, "storage", "Storage");
+    super::providers::settings(app, ui);
     let usage = match app.cache_sizes {
         Some((audio, art, lyrics)) => format!(
             "In use: songs {} · covers {} · lyrics {}",
@@ -1011,7 +1012,7 @@ fn storage(app: &mut App, ui: &mut egui::Ui, c: &mut Ctx) {
         None => "Measuring…".into(),
     };
     let mut independent = app.config.downloads.independent;
-    row(ui, c, "Playback without Premium", "Download a requested song before playback. Saved songs play locally. Spotify streaming login is skipped on startup.", |ui| {
+    row(ui, c, "Playback without Premium", "Use the selected independent provider or download connection. Saved songs play locally. Spotify streaming login is skipped on startup.", |ui| {
         if ui.add(widgets::Switch::new(&mut independent, "").inline()).changed() {
             app.config.downloads.independent = independent;
             app.send(PlayerCmd::Independent(independent));

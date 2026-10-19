@@ -1,10 +1,10 @@
 [package]
 name = "lumen"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.95"
 description = "Lumen - a lightweight, open-source Spotify desktop client"
-license = "MIT"
+license = "GPL-3.0-or-later"
 readme = "README.md"
 default-run = "lumen"
 
@@ -16,6 +16,8 @@ tray = ["dep:tray-icon"]
 media-controls = ["dep:souvlaki"]
 
 [dependencies]
+sonora_webview = { package = "webview", path = "vendor/sonora/crates/webview" }
+sonora_music = { package = "music", path = "vendor/sonora/crates/music", features = ["widevine", "bundled-sqlite"] }
 discord-rich-presence = "1.1"
 anyhow = "1"
 thiserror = "2"
@@ -104,3 +106,7 @@ strip = false
 debug = 1
 lto = false
 codegen-units = 16
+
+[patch.crates-io]
+
+rodio = { git = "https://github.com/RustAudio/rodio", rev = "4aa22e85e5ad5565c45dfdda95051158eb6b56c3" }

@@ -10,6 +10,7 @@ mod mini;
 mod panels;
 mod player_bar;
 mod profile_view;
+mod providers;
 mod settings;
 mod sidebar;
 mod stats_view;
@@ -469,6 +470,7 @@ struct DebugStats {
 }
 
 pub struct App {
+    pub native: providers::State,
     pub updater: crate::updates::Updater,
     pub account_connected: bool,
     pub account_generation: u64,
@@ -855,6 +857,7 @@ impl App {
 
         let discord = crate::discord::Discord::start(config.discord.clone());
         let mut app = Self {
+            native: Default::default(),
             updater: Default::default(),
             account_connected: crate::spotify_library::stored(&shared),
             account_generation: 0,
@@ -1077,6 +1080,9 @@ impl App {
         }
         if !app.demo && app.config.downloads.independent && app.account_connected {
             app.start_account_login(false);
+        }
+        if !app.demo && app.config.provider.kind != crate::providers::Kind::Downloads {
+            app.connect_native(true);
         }
         app
     }
@@ -2258,6 +2264,7 @@ impl App {
     }
 
     pub fn logout(&mut self) {
+        self.stop_native(false);
         let local_snapshot = self
             .snapshot
             .track
@@ -3377,6 +3384,7 @@ impl App {
 
     fn handle_event(&mut self, ctx: &egui::Context, ev: AppEvent) {
         match ev {
+            AppEvent::Provider(event) => self.handle_provider_event(event),
             AppEvent::AccountLibrary { generation, result } => {
                 if generation != self.account_generation {
                     return;
@@ -3408,10 +3416,19 @@ impl App {
                         } else {
                             self.on_view_opened();
                         }
+                        if self.config.provider.kind != crate::providers::Kind::Downloads
+                            && self.native.connected.is_none()
+                            && !self.native.busy
+                        {
+                            self.connect_native(true);
+                        }
                         if connected.restricted > 0 {
                             self.toast(ToastKind::Info, format!("Library connected. Spotify restricted {} playlists; owned playlists and liked songs were imported. You can import public playlist links separately.", connected.restricted));
                         } else {
-                            self.toast(ToastKind::Info, "Your Spotify library is ready. Choose a song to play; completed downloads stay on this device.");
+                            self.toast(
+                                ToastKind::Info,
+                                "Your Spotify library is ready. Choose a song to play.",
+                            );
                         }
                     }
                     Err(error) => {
@@ -4170,7 +4187,11 @@ impl App {
             // So a crash or forced close still reopens on this song.
             self.save_session(false);
         }
-        if (changed || started) && self.snapshot.playing && !self.private_session {
+        if (changed || started)
+            && self.snapshot.playing
+            && !self.private_session
+            && self.native.connected.is_none()
+        {
             if let (Some(downloader), Some(track)) = (
                 &self.downloader,
                 new_track.as_ref().filter(|t| !t.is_stub()),
@@ -4721,6 +4742,7 @@ fn window_handle(_cc: &eframe::CreationContext<'_>) -> Option<*mut std::ffi::c_v
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.tick_provider_browser(ctx);
         if !self.demo {
             self.updater
                 .tick(&self.shared, ctx, self.config.automatic_updates);

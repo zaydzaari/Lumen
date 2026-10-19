@@ -12,3 +12,6 @@ spotidownloader-token.*
 **/free-library.json.tmp
 
 **/account-profile.json
+**/data/providers/
+**/credentials.json
+**/cookies.json

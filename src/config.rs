@@ -355,6 +355,7 @@ impl Default for DiscordConfig {
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 #[serde(default)]
 pub struct Config {
+    pub provider: crate::providers::Settings,
     /// Check and download stable releases; installation uses the system installer.
     pub automatic_updates: bool,
     /// Client ID of *your own* Spotify developer app, used for Web API calls
@@ -380,6 +381,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             automatic_updates: true,
+            provider: crate::providers::Settings::default(),
             client_id: crate::spotify_library::DEFAULT_CLIENT_ID.into(),
             redirect_port: 8989,
             device_name: "Lumen".into(),
